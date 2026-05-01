@@ -1,6 +1,7 @@
 # Configuration
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
 # I want a class that automatically reads from enviornment variables
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -9,7 +10,8 @@ class Settings(BaseSettings):
 
     # Secrets
     openai_api_key: str
-    market_data_api_key: str
+    tavily_api_key: str
+    stock_data_api_key: str
     jwt_secret: str
 
     # Infrastructure

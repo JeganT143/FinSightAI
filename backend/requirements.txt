@@ -11,3 +11,5 @@ redis
 tenacity
 python-jose[cryptography]
 passlib[bcrypt]
+tavily-python
+numpy
