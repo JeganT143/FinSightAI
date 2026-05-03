@@ -1,6 +1,7 @@
 from agents import Agent
 from app.agents.fundamentals import fundamentals_agent
 from app.agents.market_research import market_research_agent
+from app.agents.planner import planner_agent
 from app.agents.risk import risk_agent
 from app.agents.sentiment import sentiment_agent
 from app.agents.synthesizer import synthesizer_agent
@@ -15,6 +16,7 @@ triage_agent = Agent(
     Your output should be a list of agents to call in order, along with any necessary input for each agent.
     """,
     handoffs=[
+        planner_agent,
         market_research_agent,
         fundamentals_agent,
         sentiment_agent,

@@ -27,7 +27,7 @@ class ResearchReport(BaseModel):
     key_metrics: dict[str, float]
     risks: list[str]
     sentiment_score: float = Field(ge=-1.0, le=1.0)
-    recomendation: Literal["buy", "hold", "sell", "no_view"]
+    recommendation: Literal["buy", "hold", "sell", "no_view"]
     confidence: float = Field(ge=0.0, le=1.0)
     citations: list[Citation]
 

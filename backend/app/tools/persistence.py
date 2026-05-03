@@ -29,8 +29,8 @@ async def save_artifact(
         art = ResearchArtifact(
             session_id=ctx.context.session_id,
             ticker=report.ticker,
-            summary=report.summary,
-            payload=report.model.dump(),
+            summary=report.thesis,
+            payload=report.model_dump(),
         )
 
         db.add(art)
