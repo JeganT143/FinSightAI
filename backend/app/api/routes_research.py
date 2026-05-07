@@ -6,14 +6,30 @@ from app.core.security import current_user
 from app.schemas.research import ResearchRequest
 from app.services.session_store import get_session_store
 from app.tools.persistence import AgentCtx
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from app.services.billing import BillingService
+from app.db.session import get_db
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/api/research", tags=["research"])
 
 
 @router.post("/stream", response_class=StreamingResponse)
-async def research_stream(req: ResearchRequest, user=Depends(current_user)):
+async def research_stream(
+    req: ResearchRequest, 
+    user=Depends(current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    # --- Quota check BEFORE starting the (expensive) agent run ---
+    billing = BillingService(db)
+    quota = await billing.check_quota(user)
+    if not quota["allowed"]:
+        raise HTTPException(
+            status_code=402,
+            detail=f"Monthly quota of {quota['monthly_limit']} reports reached. Upgrade your plan.",
+        )
+
     session = await get_session_store().create_session(user_id=user.id)
     ctx = AgentCtx(
         user_id=user.id,
@@ -32,6 +48,17 @@ async def research_stream(req: ResearchRequest, user=Depends(current_user)):
             if payload:
                 yield f"data: {payload}\n\n"
         yield "data: [DONE]\n\n"
+        
+        # After the run completes, record the usage event
+        # Assuming you determine total_tokens and estimated_cost elsewhere, or using dummy values for now
+        total_tokens = 0 # Replace with actual tokens captured from run result
+        estimated_cost = 0.0 # Replace with actual cost
+        await billing.record_usage(
+            user=user,
+            kind="research_report",
+            units=total_tokens,
+            cost_usd=estimated_cost,
+        )
 
     return StreamingResponse(gen(), media_type="text/event-stream")
 
