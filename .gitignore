@@ -22,3 +22,35 @@ build/
 dist/
 *.egg-info/
 .eggs/   
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs and databases
+*.log
+*.sqlite3
+*.db
+instance/
+
+# Coverage and reports
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Python packaging and caches
+pip-wheel-metadata/
+*.egg
+sdist/
+*.whl
+
+# Local environment
+.env.local
+.env.*.local
+pip-log.txt
+
+# Misc
+nohup.out
