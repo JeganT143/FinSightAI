@@ -1,0 +1,241 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   Theme system (DESIGN.md §2, Rev 3).
+
+   Two independent axes:
+   1. DESK  — the console chrome (nav, cards, tape, tables). Switches between
+      "Night Desk" (dark) and "Day Desk" (light) via the toggle below.
+   2. PAPER — the report artifact. Always the same warm, printed-page color,
+      in EITHER desk mode — like a PDF page staying white in a dark-mode PDF
+      reader. This is what keeps "the report rising off the desk" legible and
+      meaningful in both themes instead of just being an inverted grayscale.
+
+   Mechanics: raw custom properties are set in :root (light default) and
+   overridden by prefers-color-scheme (system default) and by
+   :root[data-theme="dark"/"light"] (explicit user toggle, always wins — see
+   ThemeToggle.tsx). @theme inline then maps them to Tailwind utilities, so
+   components just use classes like `bg-bg`, `text-text`, `border-border`.
+   ========================================================================== */
+
+:root {
+  /* Day Desk (light) — default */
+  --bg: #edf1ee;
+  --surface: #ffffff;
+  --surface-hover: #e3e9e4;
+  --border: #d3dbd5;
+  --text: #10201d;
+  --text-muted: #47605a;
+  --text-faint: #7c948d;
+
+  --brand: #0e9c82;
+  --brand-strong: #0b7d69;
+  --brand-blue: #1d6fb8;
+
+  --bull: #1e8a5f;
+  --hold: #9c7a12;
+  --bear: #c23a44;
+
+  --focus-ring: var(--brand);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Night Desk (dark) — system fallback */
+    --bg: #0b1615;
+    --surface: #12211f;
+    --surface-hover: #1a2e2b;
+    --border: #24413c;
+    --text: #eaf3f0;
+    --text-muted: #9fb8b2;
+    --text-faint: #6c8681;
+
+    --brand: #1aa189;
+    --brand-strong: #22b79a;
+    --brand-blue: #4a8fd6;
+
+    --bull: #2fa97c;
+    --hold: #b08f1e;
+    --bear: #e05a63;
+  }
+}
+
+:root[data-theme="light"] {
+  --bg: #edf1ee;
+  --surface: #ffffff;
+  --surface-hover: #e3e9e4;
+  --border: #d3dbd5;
+  --text: #10201d;
+  --text-muted: #47605a;
+  --text-faint: #7c948d;
+
+  --brand: #0e9c82;
+  --brand-strong: #0b7d69;
+  --brand-blue: #1d6fb8;
+
+  --bull: #1e8a5f;
+  --hold: #9c7a12;
+  --bear: #c23a44;
+}
+
+:root[data-theme="dark"] {
+  --bg: #0b1615;
+  --surface: #12211f;
+  --surface-hover: #1a2e2b;
+  --border: #24413c;
+  --text: #eaf3f0;
+  --text-muted: #9fb8b2;
+  --text-faint: #6c8681;
+
+  --brand: #1aa189;
+  --brand-strong: #22b79a;
+  --brand-blue: #4a8fd6;
+
+  --bull: #2fa97c;
+  --hold: #b08f1e;
+  --bear: #e05a63;
+}
+
+/* Paper — always the same, independent of desk theme (see comment above). */
+:root {
+  --paper: #f7f4ee;
+  --paper-ink: #1c2530;
+  --paper-line: #e3ddd2;
+
+  --amber: #e8a33d;
+
+  /* trace-timeline phase palette (categorical, fixed order, dark-validated;
+     re-validated against the light desk surface too — see DESIGN.md §2.1) */
+  --phase-research: #c97f1d;
+  --phase-synthesis: #3e85c7;
+  --phase-critique: #8464dd;
+  --phase-revision: #209b8e;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-faint: var(--text-faint);
+
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-blue: var(--brand-blue);
+
+  --color-bull: var(--bull);
+  --color-hold: var(--hold);
+  --color-bear: var(--bear);
+  --color-amber: var(--amber);
+
+  --color-paper: var(--paper);
+  --color-paper-ink: var(--paper-ink);
+  --color-paper-line: var(--paper-line);
+
+  --color-phase-research: var(--phase-research);
+  --color-phase-synthesis: var(--phase-synthesis);
+  --color-phase-critique: var(--phase-critique);
+  --color-phase-revision: var(--phase-revision);
+
+  /* Font tokens reference next/font variables (set on <html>) — must live in
+     @theme inline too, since :root can't see body-scoped custom properties. */
+  --font-sans: var(--font-plex-sans), system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+  --font-serif: var(--font-newsreader), georgia, serif;
+}
+
+html {
+  background: var(--bg);
+  color-scheme: light dark;
+}
+
+body {
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+/* Numbers are always tabular in the machine room. */
+.font-mono {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Focus ring: brand accent on the desk, paper-ink on paper (DESIGN.md §7). */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.on-paper :focus-visible {
+  outline-color: var(--paper-ink);
+}
+
+/* Running pulse — the only looping animation (DESIGN.md §2.4). */
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.animate-breathe {
+  animation: breathe 1.6s ease-in-out infinite;
+}
+
+/* Tape writes */
+@keyframes tape-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-tape-in {
+  animation: tape-in 180ms ease-out both;
+}
+
+/* The publication moment */
+@keyframes publish {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-publish {
+  animation: publish 480ms ease-out both;
+}
+
+/* The critic's stamp landing */
+@keyframes stamp {
+  from {
+    opacity: 0;
+    transform: scale(1.06) rotate(-2deg);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) rotate(-2deg);
+  }
+}
+.animate-stamp {
+  animation: stamp 260ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-breathe,
+  .animate-tape-in,
+  .animate-publish,
+  .animate-stamp {
+    animation: none;
+  }
+}
