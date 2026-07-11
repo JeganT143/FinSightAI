@@ -1,0 +1,62 @@
+{
+  "ticker": "NVDA",
+  "specialist_outputs": {
+    "technicals": {
+      "score": 8.0,
+      "bullets": [
+        "Last closing price: $210.96",
+        "Price is 0.9% above the 50-day SMA of $209.07",
+        "Price is 10.18% above the 200-day SMA of $191.47",
+        "1-year return: 28.09%",
+        "14-day RSI: 50.3 indicating neutral momentum."
+      ],
+      "summary": "NVIDIA is in a solid uptrend with strong price performance above both SMAs but exhibits moderate volatility and a slightly high RSI.",
+      "confidence": "high",
+      "data_warnings": []
+    },
+    "sentiment": {
+      "score": 9.0,
+      "bullets": [
+        "Current price: $210.96, Analyst recommendation: Strong Buy (mean rating of 1.3)",
+        "Mean target price stands at $301.62, indicating a potential upside of approximately 43% from the current price.",
+        "58 analysts covering NVDA reflect high confidence, with institutional ownership at 70.8%.",
+        "Recent headlines emphasize the recovery in chip stocks, enhancing the market outlook for Nvidia, amidst AI demand growth."
+      ],
+      "summary": "Nvidia (NVDA) has a strong buy consensus with significant upside potential, bolstered by optimistic news regarding the semiconductor and AI industries.",
+      "confidence": "high",
+      "data_warnings": []
+    },
+    "fundamentals": {
+      "score": 9.0,
+      "bullets": [
+        "Current Price: $210.96",
+        "Market Cap: $5.11 trillion",
+        "P/E Ratio: 31.07",
+        "Revenue Growth: 85.2%",
+        "Profit Margins: 62.97%"
+      ],
+      "summary": "NVIDIA (NVDA) demonstrates strong revenue growth driven by robust market demand and high profitability metrics, supported by a favorable valuation.",
+      "citations": [],
+      "confidence": "high",
+      "data_warnings": [
+        "Filing data was unavailable, so no specific context from management's disclosures."
+      ]
+    },
+    "risk": {
+      "score": 6.0,
+      "bullets": [
+        "Beta is high at 2.211, indicating volatility compared to the market.",
+        "Debt to equity ratio is 6.555, reflecting substantial leverage.",
+        "Current ratio is strong at 3.441, suggesting good short-term financial health.",
+        "Quick ratio of 2.139 indicates strong liquidity position.",
+        "Short ratio of 1.72 is relatively low, indicating manageable short interest."
+      ],
+      "summary": "NVIDIA (NVDA) shows a moderate risk profile, with significant leverage and high beta, but strong liquidity ratios mitigate some risk.",
+      "citations": [],
+      "confidence": "medium",
+      "data_warnings": [
+        "No filing passages available for analysis."
+      ]
+    }
+  }
+}
