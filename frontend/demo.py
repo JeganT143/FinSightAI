@@ -1,177 +1,83 @@
-import streamlit as st
-import requests
+"""Minimal pure-Python client for the v2 SSE protocol.
+
+The real frontend is the Next.js app in frontend/web (see DESIGN.md);
+this exists so the backend can be demoed with nothing but Python:
+
+    uv run streamlit run frontend/demo.py
+"""
+
 import json
 
-# ─────────────────────────────────────────
-# Page config
-# ─────────────────────────────────────────
-st.set_page_config(page_title="FinSightAI", page_icon="📈", layout="wide")
+import requests
+import streamlit as st
 
-st.title("📈 FinSightAI")
-st.caption("Multi-agent investment research platform")
+st.set_page_config(page_title="FinSightAI (lite)", page_icon="📈", layout="wide")
+st.title("FinSightAI — lite console")
+st.caption("Minimal Streamlit client. The full experience is the Next.js console on :3000.")
 
-# ─────────────────────────────────────────
-# Input
-# ─────────────────────────────────────────
-col1, col2 = st.columns([3, 1])
+col_input, col_button = st.columns([4, 1])
+ticker = col_input.text_input("Ticker", placeholder="NVDA", max_chars=5).upper().strip()
+run = col_button.button("Run research", use_container_width=True)
 
-with col1:
-    ticker = (
-        st.text_input("Stock Ticker", placeholder="e.g. NVDA, AAPL, MSFT", max_chars=5)
-        .upper()
-        .strip()
-    )
-
-with col2:
-    st.write("")
-    st.write("")
-    run = st.button("🔍 Analyze", use_container_width=True)
-
-# ─────────────────────────────────────────
-# Pipeline execution
-# ─────────────────────────────────────────
 if run and ticker:
-
     if not ticker.isalpha():
-        st.error("Invalid ticker. Use letters only e.g. NVDA")
+        st.error("Tickers are 1-5 letters, e.g. NVDA.")
         st.stop()
 
-    # Activity feed — shows agent events in real time
-    st.subheader("🤖 Agent Activity")
-    activity = st.container()
-
-    # Report placeholder — fills in when complete
-    st.subheader("📋 Research Report")
-    report_placeholder = st.empty()
-
-    # Status tracking
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-
-    progress_steps = {
-        "start": 5,
-        "progress": 20,
-        "fundamentals": 40,
-        "risk": 50,
-        "sentiment": 60,
-        "critic": 80,
-        "complete": 100,
-    }
+    tape = st.status(f"Researching {ticker}...", expanded=True)
+    report_slot = st.empty()
 
     try:
         with requests.post(
             "http://localhost:8000/api/research/stream",
             json={"ticker": ticker},
             stream=True,
-            timeout=120,
+            timeout=300,
         ) as response:
-
             response.raise_for_status()
-            current_progress = 0
-
             for line in response.iter_lines():
-                if not line:
+                if not line.startswith(b"data: "):
+                    continue
+                try:
+                    event = json.loads(line[6:])
+                except json.JSONDecodeError:
                     continue
 
-                # SSE lines start with "data: "
-                if line.startswith(b"data: "):
-                    raw = line[6:]  # strip "data: " prefix
-
-                    try:
-                        event = json.loads(raw)
-                    except json.JSONDecodeError:
-                        continue
-
-                    event_type = event.get("type")
-
-                    # Update progress bar
-                    if event_type in progress_steps:
-                        new_progress = progress_steps[event_type]
-                        if new_progress > current_progress:
-                            current_progress = new_progress
-                            progress_bar.progress(current_progress)
-
-                    # Render each event type differently
-                    if event_type == "start":
-                        status_text.info(f"🚀 {event['message']}")
-                        with activity:
-                            st.info(f"🚀 {event['message']}")
-
-                    elif event_type == "progress":
-                        status_text.info(f"⏳ {event['message']}")
-                        with activity:
-                            st.info(f"⏳ {event['message']}")
-
-                    elif event_type == "fundamentals":
-                        with activity:
-                            with st.expander(
-                                "📊 Fundamentals Agent — complete", expanded=False
-                            ):
-                                st.markdown(event["data"])
-
-                    elif event_type == "risk":
-                        with activity:
-                            with st.expander(
-                                "⚠️ Risk Agent — complete", expanded=False
-                            ):
-                                st.markdown(event["data"])
-
-                    elif event_type == "sentiment":
-                        with activity:
-                            with st.expander(
-                                "💬 Sentiment Agent — complete", expanded=False
-                            ):
-                                st.markdown(event["data"])
-
-                    elif event_type == "critic":
-                        challenges = event["challenges_found"]
-                        blocks = event["blocks_publication"]
-                        assessment = event["assessment"]
-
-                        with activity:
-                            if blocks:
-                                st.warning(
-                                    f"🔍 Critic found {challenges} challenges — "
-                                    f"requesting revision\n\n_{assessment}_"
-                                )
-                            else:
-                                st.success(
-                                    f"✅ Critic approved — "
-                                    f"{challenges} minor notes\n\n_{assessment}_"
-                                )
-
-                    elif event_type == "complete":
-                        progress_bar.progress(100)
-                        status_text.success("✅ Research complete")
-
-                        # Render the final report
-                        report_placeholder.markdown(event["report"])
-
-                        # Show metadata
-                        st.divider()
-                        meta_col1, meta_col2, meta_col3 = st.columns(3)
-                        with meta_col1:
-                            st.metric("Ticker", event["ticker"])
-                        with meta_col2:
-                            st.metric(
-                                "Report Revised",
-                                "Yes" if event["was_revised"] else "No",
-                            )
-                        with meta_col3:
-                            st.metric("Report ID", event["report_id"][:8] + "...")
-
-                    elif event_type == "error":
-                        st.error(f"❌ Pipeline error: {event['message']}")
-                        break
-
+                etype = event.get("type")
+                if etype == "phase":
+                    tape.write(f"⏳ {event['message']}")
+                elif etype == "grounding":
+                    tape.write(f"📄 {event['detail']}")
+                elif etype == "agent_completed":
+                    usage = event["usage"]
+                    score = event["data"].get("score", event["data"].get("overall_score"))
+                    tape.write(
+                        f"✅ {event['agent']} — score {score} · "
+                        f"${usage['cost_usd']:.4f} · {usage['latency_ms'] / 1000:.1f}s"
+                    )
+                elif etype == "critic_verdict":
+                    icon = "🛑" if event["blocks_publication"] else "🟢"
+                    tape.write(
+                        f"{icon} critic: {len(event['challenges'])} challenge(s) — "
+                        f"{event['assessment']}"
+                    )
+                elif etype == "complete":
+                    report = event["report"]
+                    usage = event["usage_summary"]
+                    tape.update(label="Research complete", state="complete", expanded=False)
+                    with report_slot.container():
+                        st.subheader(f"{report['ticker']} — {report['verdict']} "
+                                     f"({report['overall_score']}/10)")
+                        st.markdown(report["narrative_markdown"])
+                        st.caption(
+                            f"{event['revision_count']} revision(s) · "
+                            f"${usage['cost_usd']:.4f} · {usage['latency_ms'] / 1000:.1f}s"
+                        )
+                elif etype == "error":
+                    tape.update(label="Run failed", state="error")
+                    st.error(event["message"])
+                    break
     except requests.exceptions.ConnectionError:
-        st.error(
-            "Cannot connect to backend. Make sure the server is running on port 8000."
-        )
-    except requests.exceptions.Timeout:
-        st.error("Request timed out. The pipeline took too long.")
-    except Exception as e:
-        st.error(f"Unexpected error: {str(e)}")
-
-elif run and not ticker:
-    st.warning("Please enter a ticker symbol.")
+        st.error("Backend unreachable — start it on :8000 first.")
+elif run:
+    st.warning("Enter a ticker first.")
