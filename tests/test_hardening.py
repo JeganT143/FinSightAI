@@ -118,7 +118,7 @@ def test_run_gate_caps_concurrency():
 
 @pytest.fixture
 def stub_pipeline(monkeypatch):
-    async def fake_pipeline(ticker, db):
+    async def fake_pipeline(ticker, user_id, db, plan_limits=None):
         return {"type": "complete", "ticker": ticker}
 
     monkeypatch.setattr("backend.api.routes_research.run_research_pipeline", fake_pipeline)

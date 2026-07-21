@@ -15,8 +15,10 @@ import asyncio
 import json
 import logging
 import time
+import uuid
 from collections.abc import AsyncGenerator
 
+from agents import Agent
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.agents.critic import critic_agent
@@ -25,6 +27,7 @@ from backend.agents.risk import risk_agent
 from backend.agents.sentiment import sentiment_agent
 from backend.agents.synthesizer import synthesizer_agent
 from backend.agents.technicals import technicals_agent
+from backend.billing.limits import PLAN_LIMITS, PlanLimit, accrue_usage
 from backend.core.config import settings
 from backend.db import crud
 from backend.db.models import ResearchReport
@@ -59,10 +62,27 @@ def _specialists_payload(outputs: dict[str, SpecialistOutput], overall_score: fl
     )
 
 
-async def run_research_pipeline_stream(ticker: str, db: AsyncSession) -> AsyncGenerator[dict]:
-    """Runs the full pipeline, yielding SSE events and persisting as it goes."""
+async def run_research_pipeline_stream(
+    ticker: str,
+    user_id: uuid.UUID,
+    db: AsyncSession,
+    plan_limits: PlanLimit | None = None,
+) -> AsyncGenerator[dict]:
+    """Runs the full pipeline, yielding SSE events and persisting as it goes.
+
+    `user_id` stamps ownership on the report (SAAS §5). `plan_limits` selects
+    the model tier per agent (SAAS §6.3) — the only Phase-2 change inside the
+    Phase-1 pipeline. None = Pro-tier routing (the Phase-1 defaults).
+    """
+    plan = plan_limits or PLAN_LIMITS["pro"]
+
+    def routed(agent: Agent, model: str) -> Agent:
+        # Agents are immutable module-level instances; clone only when the
+        # plan's model differs from the agent's own.
+        return agent if str(agent.model) == model else agent.clone(model=model)
+
     t0 = time.perf_counter()
-    report: ResearchReport = await crud.create_report(db, ticker)
+    report: ResearchReport = await crud.create_report(db, user_id, ticker)
     # Commit immediately: the running row shows up in the Ledger, and a crash
     # later still leaves a traceable failed report.
     await db.commit()
@@ -107,7 +127,8 @@ async def run_research_pipeline_stream(ticker: str, db: AsyncSession) -> AsyncGe
         }
 
         async def run_specialist(pillar: str) -> TracedRun:
-            return await traced_run(SPECIALISTS[pillar], f"Analyze {ticker}", phase="research")
+            agent = routed(SPECIALISTS[pillar], plan.specialist_model)
+            return await traced_run(agent, f"Analyze {ticker}", phase="research")
 
         tasks = [asyncio.create_task(run_specialist(p)) for p in SPECIALISTS]
         for pillar in SPECIALISTS:
@@ -148,7 +169,9 @@ async def run_research_pipeline_stream(ticker: str, db: AsyncSession) -> AsyncGe
         yield {"type": "agent_started", "agent": "synthesizer", "phase": "synthesis"}
 
         synth_run = await traced_run(
-            synthesizer_agent, f"TICKER: {ticker}\n\n{payload}", phase="synthesis"
+            routed(synthesizer_agent, plan.synthesizer_model),
+            f"TICKER: {ticker}\n\n{payload}",
+            phase="synthesis",
         )
         draft: ReportDraft = synth_run.output
         draft.overall_score = overall_score  # deterministic arithmetic wins (ADR-3)
@@ -174,7 +197,7 @@ async def run_research_pipeline_stream(ticker: str, db: AsyncSession) -> AsyncGe
             yield {"type": "agent_started", "agent": "critic", "phase": "critique"}
 
             critic_run = await traced_run(
-                critic_agent,
+                routed(critic_agent, plan.critic_model),
                 f"SPECIALIST DATA (ground truth):\n{payload}\n\nDRAFT REPORT:\n{draft.model_dump_json(indent=2)}",
                 phase="critique",
             )
@@ -215,7 +238,7 @@ async def run_research_pipeline_stream(ticker: str, db: AsyncSession) -> AsyncGe
             yield {"type": "agent_started", "agent": "synthesizer", "phase": "revision"}
 
             revision_run = await traced_run(
-                synthesizer_agent,
+                routed(synthesizer_agent, plan.synthesizer_model),
                 (
                     f"TICKER: {ticker}\n\n{payload}\n\n"
                     f"PREVIOUS DRAFT:\n{draft.model_dump_json(indent=2)}\n\n"
@@ -246,6 +269,11 @@ async def run_research_pipeline_stream(ticker: str, db: AsyncSession) -> AsyncGe
             completion_tokens=total_output_tokens,
             cost_usd=total_cost,
             latency_ms=latency_ms,
+        )
+        # Record actuals against the period's usage counter (SAAS §6) — the
+        # run slot itself was reserved pre-flight by check_and_reserve_run.
+        await accrue_usage(
+            db, user_id, tokens=total_input_tokens + total_output_tokens, cost_usd=total_cost
         )
 
         logger.info(
@@ -291,10 +319,15 @@ async def run_research_pipeline_stream(ticker: str, db: AsyncSession) -> AsyncGe
         raise
 
 
-async def run_research_pipeline(ticker: str, db: AsyncSession) -> dict:
+async def run_research_pipeline(
+    ticker: str,
+    user_id: uuid.UUID,
+    db: AsyncSession,
+    plan_limits: PlanLimit | None = None,
+) -> dict:
     """Non-streaming variant: drains the stream, returns the `complete` payload."""
     final: dict = {}
-    async for event in run_research_pipeline_stream(ticker, db):
+    async for event in run_research_pipeline_stream(ticker, user_id, db, plan_limits):
         if event["type"] == "complete":
             final = event
     return final

@@ -4,8 +4,8 @@ from backend.db import crud
 from tests.factories import make_critic, make_draft, make_specialist, make_traced_run
 
 
-async def seed_report(db, ticker="NVDA"):
-    report = await crud.create_report(db, ticker)
+async def seed_report(db, user_id, ticker="NVDA"):
+    report = await crud.create_report(db, user_id, ticker)
     run = make_traced_run("FundamentalsAgent", "research", make_specialist("FundamentalsAgent"))
     await crud.add_agent_run(db, report.id, run)
     await crud.complete_report(
@@ -34,9 +34,9 @@ async def test_list_reports_empty(client):
     assert resp.json() == {"reports": [], "total": 0, "limit": 20, "offset": 0}
 
 
-async def test_list_reports_with_ticker_filter(client, db_session):
-    await seed_report(db_session, "NVDA")
-    await seed_report(db_session, "AAPL")
+async def test_list_reports_with_ticker_filter(client, db_session, dev_user):
+    await seed_report(db_session, dev_user.id, "NVDA")
+    await seed_report(db_session, dev_user.id, "AAPL")
 
     resp = await client.get("/api/reports")
     assert resp.json()["total"] == 2
@@ -51,8 +51,8 @@ async def test_list_reports_with_ticker_filter(client, db_session):
     assert summary["cost_usd"] == 0.02
 
 
-async def test_report_detail_includes_agent_runs(client, db_session):
-    report = await seed_report(db_session)
+async def test_report_detail_includes_agent_runs(client, db_session, dev_user):
+    report = await seed_report(db_session, dev_user.id)
 
     resp = await client.get(f"/api/reports/{report.id}")
     assert resp.status_code == 200
@@ -78,7 +78,7 @@ async def test_invalid_ticker_rejected(client):
 async def test_research_stream_emits_sse(client, session_factory, monkeypatch):
     """Stream endpoint contract: data: lines with JSON events, then a done event."""
 
-    async def fake_pipeline(ticker, db):
+    async def fake_pipeline(ticker, user_id, db, plan_limits=None):
         yield {"type": "start", "report_id": "x", "ticker": ticker}
         yield {"type": "complete", "report_id": "x", "ticker": ticker}
 

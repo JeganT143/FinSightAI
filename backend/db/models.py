@@ -31,9 +31,101 @@ class User(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    # Clerk's `sub` claim (SAAS §3). Nullable only for pre-auth rows / dev mode.
+    external_auth_id: Mapped[str | None] = mapped_column(
+        String(64), unique=True, index=True, nullable=True
+    )
+    # Denormalized from Subscription for a single-row read on the hot path (SAAS §3.5).
+    plan: Mapped[str] = mapped_column(String(20), default="free", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     reports: Mapped[list["ResearchReport"]] = relationship(back_populates="user")
+    subscription: Mapped["Subscription | None"] = relationship(back_populates="user")
+
+
+class Subscription(Base):
+    """Local mirror of Stripe state (SAAS §4) — Stripe is the system of record;
+    webhooks keep this in sync for fast reads, reconcile.py corrects drift."""
+
+    __tablename__ = "subscriptions"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), unique=True, nullable=False)
+    stripe_customer_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    stripe_subscription_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    plan: Mapped[str] = mapped_column(String(20), default="free", nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="active")  # active|past_due|canceled
+    current_period_end: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    user: Mapped["User"] = relationship(back_populates="subscription")
+
+
+class UsageCounter(Base):
+    """One row per user per billing period (SAAS §6). Reserved pre-flight,
+    before a run is enqueued — never counted after the fact."""
+
+    __tablename__ = "usage_counters"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    period_start: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    period_end: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    research_runs_used: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    tokens_used: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    cost_usd_accrued: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+
+    __table_args__ = (
+        Index("ix_usage_counters_user_period", "user_id", "period_start", unique=True),
+    )
+
+
+class Conversation(Base):
+    """A Concierge chat thread (SAAS §8)."""
+
+    __tablename__ = "conversations"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(120), default="New conversation")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    messages: Mapped[list["Message"]] = relationship(
+        back_populates="conversation", cascade="all, delete-orphan", order_by="Message.created_at"
+    )
+
+
+class Message(Base):
+    __tablename__ = "messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    role: Mapped[str] = mapped_column(String(12), nullable=False)  # user|assistant|tool
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    tool_calls: Mapped[dict | None] = mapped_column(JsonB, nullable=True)
+    linked_report_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("research_reports.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    conversation: Mapped["Conversation"] = relationship(back_populates="messages")
+
+
+class AuditLog(Base):
+    """Independent record of compliance-relevant events (SAAS §9) — e.g. every
+    advice-request refusal — reviewable without trusting classifier logs."""
+
+    __tablename__ = "audit_log"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    event_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    event_metadata: Mapped[dict | None] = mapped_column("metadata", JsonB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
 
 
 class ResearchReport(Base):

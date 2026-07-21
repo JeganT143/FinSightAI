@@ -37,6 +37,31 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_format: Literal["text", "json"] = "text"  # "json" in containers (see compose)
 
+    # --- Authentication (SAAS §3) ---
+    # "disabled" = Phase-1 behavior for local dev: a single dev user, no tokens.
+    # "clerk"    = verify Clerk JWTs against the issuer's JWKS. REQUIRED in any
+    #              deployed environment — main.py logs CRITICAL if disabled without debug.
+    auth_mode: Literal["disabled", "clerk"] = "disabled"
+    clerk_issuer: str = ""  # e.g. https://your-app.clerk.accounts.dev
+    clerk_authorized_parties: list[str] = []  # azp allowlist; empty = don't check
+
+    # --- Billing (SAAS §4) — test-mode keys in dev; unset disables billing routes ---
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_price_pro: str = ""  # Stripe Price ID for the Pro plan
+    billing_success_url: str = "http://localhost:3000/account/billing?upgraded=1"
+    billing_cancel_url: str = "http://localhost:3000/pricing"
+
+    # --- Async execution (SAAS §7) ---
+    # False = run the pipeline inline in the request (Phase-1 behavior; no Redis
+    # needed). True = enqueue to Arq and stream events via Redis pub/sub.
+    queue_enabled: bool = False
+    redis_url: str = "redis://localhost:6379/0"
+
+    # --- Concierge (SAAS §8) ---
+    concierge_model: str = "gpt-4o"
+    intent_model: str = "gpt-4o-mini"  # cheap, fast intent classification
+
     # --- RAG over SEC filings (ADR-5) ---
     # SEC requires a User-Agent identifying the requester: https://www.sec.gov/os/accessing-edgar-data
     sec_user_agent: str = "FinSightAI/0.2 (research demo; contact: engjegant@gmail.com)"

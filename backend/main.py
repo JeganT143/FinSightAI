@@ -14,6 +14,7 @@ from sqlalchemy import text  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
 from backend.api.middleware import RequestContextMiddleware  # noqa: E402
+from backend.api.routes_account import router as account_router  # noqa: E402
 from backend.api.routes_research import router  # noqa: E402
 from backend.core.config import settings  # noqa: E402
 from backend.core.logging import configure_logging  # noqa: E402
@@ -33,6 +34,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         settings.synthesizer_model,
         settings.critic_model,
     )
+    if settings.auth_mode == "disabled" and not settings.debug:
+        # Deliberately loud (SAAS §3): an unauthenticated instance with a live
+        # OpenAI key must never be exposed publicly.
+        logger.critical(
+            "AUTH IS DISABLED (auth_mode=disabled) outside debug — every caller "
+            "acts as the dev user. Never expose this instance publicly."
+        )
     yield
     # Return pooled connections cleanly so Postgres doesn't log aborted sessions.
     await engine.dispose()
@@ -58,6 +66,7 @@ app.add_middleware(
 app.add_middleware(RequestContextMiddleware)
 
 app.include_router(router)
+app.include_router(account_router)
 
 
 @app.get("/health")

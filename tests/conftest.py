@@ -10,10 +10,28 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from backend.db.models import AgentRun, ResearchReport, User
+from backend.db.models import (
+    AgentRun,
+    AuditLog,
+    Conversation,
+    Message,
+    ResearchReport,
+    Subscription,
+    UsageCounter,
+    User,
+)
 from backend.db.session import Base
 
-TEST_TABLES = [User.__table__, ResearchReport.__table__, AgentRun.__table__]
+TEST_TABLES = [
+    User.__table__,
+    ResearchReport.__table__,
+    AgentRun.__table__,
+    Subscription.__table__,
+    UsageCounter.__table__,
+    Conversation.__table__,
+    Message.__table__,
+    AuditLog.__table__,
+]
 
 
 @pytest_asyncio.fixture
@@ -36,6 +54,16 @@ async def session_factory(db_engine):
 async def db_session(session_factory):
     async with session_factory() as session:
         yield session
+
+
+@pytest_asyncio.fixture
+async def dev_user(db_session):
+    """The same user auth_mode="disabled" resolves to — seeded reports made
+    with this id are visible through the API in tests."""
+    user = User(email="dev@localhost", plan="pro")
+    db_session.add(user)
+    await db_session.commit()
+    return user
 
 
 @pytest_asyncio.fixture

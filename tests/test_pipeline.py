@@ -38,15 +38,15 @@ def no_rag(monkeypatch):
     monkeypatch.setattr("backend.pipeline.research.ensure_filing_ingested", fake_ingest)
 
 
-async def collect_events(ticker, db):
-    return [event async for event in run_research_pipeline_stream(ticker, db)]
+async def collect_events(ticker, user_id, db):
+    return [event async for event in run_research_pipeline_stream(ticker, user_id, db)]
 
 
-async def test_clean_run_no_revision(db_session, no_rag, monkeypatch):
+async def test_clean_run_no_revision(db_session, dev_user, no_rag, monkeypatch):
     monkeypatch.setattr(
         "backend.pipeline.research.traced_run", ScriptedAgents(critic_script=[False])
     )
-    events = await collect_events("NVDA", db_session)
+    events = await collect_events("NVDA", dev_user.id, db_session)
 
     types = [e["type"] for e in events]
     assert types[0] == "start"
@@ -68,10 +68,10 @@ async def test_clean_run_no_revision(db_session, no_rag, monkeypatch):
     assert len(runs) == 6
 
 
-async def test_blocked_report_gets_revised_once(db_session, no_rag, monkeypatch):
+async def test_blocked_report_gets_revised_once(db_session, dev_user, no_rag, monkeypatch):
     script = ScriptedAgents(critic_script=[True, False])  # block, then approve
     monkeypatch.setattr("backend.pipeline.research.traced_run", script)
-    events = await collect_events("NVDA", db_session)
+    events = await collect_events("NVDA", dev_user.id, db_session)
 
     complete = events[-1]
     assert complete["revision_count"] == 1
@@ -82,11 +82,11 @@ async def test_blocked_report_gets_revised_once(db_session, no_rag, monkeypatch)
     assert verdicts[1]["blocks_publication"] is False
 
 
-async def test_revision_loop_is_bounded(db_session, no_rag, monkeypatch):
+async def test_revision_loop_is_bounded(db_session, dev_user, no_rag, monkeypatch):
     """Critic that never approves must not loop forever (ADR-6)."""
     script = ScriptedAgents(critic_script=[True] * 10)
     monkeypatch.setattr("backend.pipeline.research.traced_run", script)
-    events = await collect_events("NVDA", db_session)
+    events = await collect_events("NVDA", dev_user.id, db_session)
 
     complete = events[-1]
     from backend.core.config import settings
@@ -98,7 +98,7 @@ async def test_revision_loop_is_bounded(db_session, no_rag, monkeypatch):
     assert complete["critic"]["blocks_publication"] is True
 
 
-async def test_specialist_failure_marks_report_failed(db_session, no_rag, monkeypatch):
+async def test_specialist_failure_marks_report_failed(db_session, dev_user, no_rag, monkeypatch):
     async def exploding_run(agent, input_text, phase):
         raise RuntimeError("tool exploded")
 
@@ -106,7 +106,7 @@ async def test_specialist_failure_marks_report_failed(db_session, no_rag, monkey
 
     events = []
     with pytest.raises(RuntimeError):
-        async for event in run_research_pipeline_stream("NVDA", db_session):
+        async for event in run_research_pipeline_stream("NVDA", dev_user.id, db_session):
             events.append(event)
 
     assert events[-1]["type"] == "error"

@@ -9,9 +9,9 @@ from backend.pipeline.tracing import TracedRun
 from backend.schemas.agents import CriticOutput, ReportDraft
 
 
-async def create_report(db: AsyncSession, ticker: str) -> ResearchReport:
-    """New report row with status 'running', created before agents start."""
-    report = ResearchReport(id=uuid.uuid4(), ticker=ticker, status="running")
+async def create_report(db: AsyncSession, user_id: uuid.UUID, ticker: str) -> ResearchReport:
+    """New report row with status 'running', stamped with its owner (SAAS §5)."""
+    report = ResearchReport(id=uuid.uuid4(), user_id=user_id, ticker=ticker, status="running")
     db.add(report)
     await db.flush()
     return report
@@ -73,24 +73,33 @@ async def fail_report(db: AsyncSession, report: ResearchReport, error: str) -> R
     return report
 
 
-async def get_report(db: AsyncSession, report_id: uuid.UUID) -> ResearchReport | None:
+async def get_report(
+    db: AsyncSession, user_id: uuid.UUID, report_id: uuid.UUID
+) -> ResearchReport | None:
+    """The report, only if `user_id` owns it.
+
+    A row owned by someone else returns None — indistinguishable from
+    "doesn't exist". This is the tenant isolation boundary (SAAS §5) and it
+    must not leak via a different status code.
+    """
     result = await db.execute(
         select(ResearchReport)
         .options(selectinload(ResearchReport.agent_runs))
-        .where(ResearchReport.id == report_id)
+        .where(ResearchReport.id == report_id, ResearchReport.user_id == user_id)
     )
     return result.scalar_one_or_none()
 
 
 async def list_reports(
     db: AsyncSession,
+    user_id: uuid.UUID,
     ticker: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> tuple[list[ResearchReport], int]:
-    """Recent reports (summaries), newest first, with total count for pagination."""
-    query = select(ResearchReport)
-    count_query = select(func.count(ResearchReport.id))
+    """The user's reports, newest first, with total count for pagination."""
+    query = select(ResearchReport).where(ResearchReport.user_id == user_id)
+    count_query = select(func.count(ResearchReport.id)).where(ResearchReport.user_id == user_id)
     if ticker:
         query = query.where(ResearchReport.ticker == ticker.upper())
         count_query = count_query.where(ResearchReport.ticker == ticker.upper())

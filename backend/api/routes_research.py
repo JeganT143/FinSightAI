@@ -7,8 +7,10 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.limits import CapacityError, enforce_research_rate_limit, run_gate
+from backend.billing.limits import QuotaExceededError, check_and_reserve_run, plan_limits_for
+from backend.core.auth import get_current_user
 from backend.db import crud
-from backend.db.models import ResearchReport
+from backend.db.models import ResearchReport, User
 from backend.db.session import AsyncSessionLocal, get_db
 from backend.pipeline.research import (
     run_research_pipeline,
@@ -34,39 +36,69 @@ def _acquire_run_slot() -> None:
         raise HTTPException(status_code=503, detail=str(e), headers={"Retry-After": "60"}) from e
 
 
+async def _reserve_quota(db: AsyncSession, user: User) -> None:
+    """SAAS §6: reserve a run pre-flight; over-quota = 402 + upgrade prompt."""
+    try:
+        await check_and_reserve_run(db, user)
+    except QuotaExceededError as e:
+        raise HTTPException(
+            status_code=402,
+            detail=f"{e} Upgrade at /pricing for a higher limit.",
+        ) from e
+
+
 @router.post("/research", dependencies=[Depends(enforce_research_rate_limit)])
-async def research(request: ResearchRequest, db: AsyncSession = Depends(get_db)) -> dict:
+async def research(
+    request: ResearchRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
     """Non-streaming research run — returns the final `complete` event payload.
 
     Failures propagate to the middleware error boundary: the client gets a
     clean 500 with an error_id, the log gets the traceback, and the failed
     report row (with full detail) is queryable at /reports/{id}.
     """
+    # Gate before quota: a 503 (at capacity) must not consume a quota slot.
     _acquire_run_slot()
     try:
-        return await run_research_pipeline(request.ticker, db)
+        await _reserve_quota(db, user)
+        return await run_research_pipeline(request.ticker, user.id, db, plan_limits_for(user))
     finally:
         run_gate.release()
 
 
 @router.post("/research/stream", dependencies=[Depends(enforce_research_rate_limit)])
-async def research_stream(request: ResearchRequest) -> StreamingResponse:
+async def research_stream(
+    request: ResearchRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
     """Run the pipeline, streaming SSE events (see ARCHITECTURE.md §6 for the protocol)."""
+    # Gate before quota: a 503 (at capacity) must not consume a quota slot.
     _acquire_run_slot()
+    try:
+        await _reserve_quota(db, user)
+    except BaseException:
+        run_gate.release()
+        raise
+    user_id, plan = user.id, plan_limits_for(user)
 
     async def event_generator() -> AsyncGenerator[str]:
         # Session is created inside the generator so it lives for the whole stream.
         try:
-            async with AsyncSessionLocal() as db:
+            async with AsyncSessionLocal() as stream_db:
                 try:
-                    async for event in run_research_pipeline_stream(request.ticker, db):
+                    async for event in run_research_pipeline_stream(
+                        request.ticker, user_id, stream_db, plan
+                    ):
                         yield f"data: {json.dumps(event)}\n\n"
-                    await db.commit()
+                    await stream_db.commit()
                 except Exception:
                     # The pipeline already emitted a sanitized `error` event and
                     # persisted the failure; commit the fail_report row and end
                     # the stream cleanly.
-                    await db.commit()
+                    await stream_db.commit()
 
             yield "event: done\ndata: {}\n\n"
         finally:
@@ -99,9 +131,10 @@ async def list_reports(
     ticker: str | None = Query(default=None, max_length=5),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ReportListResponse:
-    reports, total = await crud.list_reports(db, ticker=ticker, limit=limit, offset=offset)
+    reports, total = await crud.list_reports(db, user.id, ticker=ticker, limit=limit, offset=offset)
     return ReportListResponse(
         reports=[_summary(r) for r in reports], total=total, limit=limit, offset=offset
     )
@@ -109,9 +142,11 @@ async def list_reports(
 
 @router.get("/reports/{report_id}", response_model=ReportDetailResponse)
 async def get_report(
-    report_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    report_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> ReportDetailResponse:
-    report = await crud.get_report(db, report_id)
+    report = await crud.get_report(db, user.id, report_id)
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
     return ReportDetailResponse(
