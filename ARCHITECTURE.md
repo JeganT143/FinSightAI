@@ -247,13 +247,33 @@ A pricing table in config converts token usage → USD per agent run, persisted 
 
 ### ADR-11: Packaging & CI — Docker Compose + GitHub Actions
 
-**Decision.** `docker compose up` starts Postgres (`pgvector/pgvector` image), the FastAPI backend (with Alembic migrations on start), and the Next.js frontend. CI runs ruff + pytest (unit + deterministic evals) + `next build` on every push.
+**Decision.** `docker compose up` starts Postgres (`pgvector/pgvector` image), the FastAPI backend (with Alembic migrations on start), and the Next.js frontend — both app images run as non-root users with healthchecks, and the frontend waits on the backend's *readiness* (migrations applied, DB reachable), not just its start. CI runs four jobs on every push: backend (ruff check + format, mypy, pytest with an 80% coverage gate), frontend (lint + `next build`), docker (both images must build), and security (pip-audit on the lockfile, npm audit on production deps). A Makefile exposes every CI check as a local target so "works locally" and "works in CI" are the same commands.
 
 **Why.** A reviewer must be able to run the whole system with one command and a single `OPENAI_API_KEY`. CI proves the tests aren't decorative.
 
 **Alternatives rejected.**
 - **K8s manifests / Helm** — resume-driven complexity for a single-node demo.
 - **Cloud-deploy-only** — requires the reviewer to trust a hosted URL and the author to keep paying for it; compose is reproducible forever.
+
+---
+
+### ADR-12: Operational hardening — in-process guardrails before infrastructure
+
+**Decision.** Production-readiness concerns live inside the single FastAPI process, each as the smallest mechanism that closes a real failure mode:
+
+- **Structured logging** — stdlib only, JSON format in containers, and a `ContextVar` request ID stamped on every log line emitted anywhere inside a request (pipeline, RAG, CRUD) without threading it through signatures. Per-agent and per-run summary lines carry tokens, cost, and latency.
+- **Request-context middleware** — pure ASGI (Starlette's `BaseHTTPMiddleware` re-buffers bodies, which is exactly wrong in front of SSE): assigns/echoes `X-Request-ID`, adds baseline security headers, writes one access-log line per request, and is the error boundary — unhandled exceptions log the traceback and return a generic 500 whose `error_id` is the request ID, so a user report is greppable but internals never reach an anonymous client. SSE error events likewise carry only the exception class; full detail persists on the report row.
+- **Abuse bounds on the two spend endpoints** — a sliding-window-log rate limit per client IP plus a non-queueing cap on *concurrent* runs (excess gets an immediate 503 + Retry-After, because a silent queue is a mystery three-minute hang).
+- **Agent timeout** — `asyncio.timeout` around every `Runner.run`; the SDK retries transient errors but nothing above it bounds total wall time, and one stuck LLM call must not hang a run forever.
+- **Probe split** — `/health` (liveness, dependency-free) vs `/health/ready` (DB ping): a Postgres blip should stop traffic routing, not trigger container restarts. `pool_pre_ping` on the engine so a restarted Postgres doesn't surface as a mid-request dead connection.
+
+**Why.** Phase 1 is unauthenticated by scope (ADR under §8), and every research run spends the operator's OpenAI budget — so the API itself must bound how fast an anonymous caller can burn money, and how much internal detail they can extract from failures. All of it is unit-tested without LLM calls.
+
+**Alternatives rejected.**
+- **structlog / loguru** — the requirement (leveled lines, request ID, JSON option) is ~60 lines of stdlib; a logging framework is one more dependency to defend and its config is less obvious than the code it replaces.
+- **Redis-backed rate limiting** — correct once multiple workers exist, and already specified for Phase 2 (SAAS_ARCHITECTURE.md §6). In one process it's an extra service to run for a worse version of a 40-line exact limiter.
+- **OpenTelemetry + collector** — the observability *product* here is first-party per-agent traces in Postgres (ADR-8) that the UI renders. OTel means an SDK, a collector, and a backend to operate, producing data nothing consumes yet; Phase 2 revisits when there's real infra to correlate across.
+- **API gateway (Traefik/Kong) for limits and headers** — a whole system to operate in front of two endpoints; the FastAPI dependency does the same job and is testable in-process.
 
 ---
 
@@ -342,11 +362,17 @@ filing_chunks      id, filing_id FK, item, section_title, chunk_index,
 - **LLM/tool failure mid-run** → report marked `failed` with the error persisted; partial `agent_runs` retained for debugging; SSE emits `error`.
 - **Client disconnects** → run continues server-side to completion (report retrievable from history); generator handles `CancelledError` by detaching, not aborting the DB write.
 - **Cost runaway** → revision loop bounded (ADR-6); per-run cost computed and stored; a config `max_cost_usd` circuit-breaker aborts pathological runs.
+- **Hung LLM call** → every agent run is bounded by `agent_timeout_seconds` (ADR-12); timeout fails the run fast with a typed error instead of hanging the stream.
+- **Postgres restart** → `pool_pre_ping` validates pooled connections before use; `/health/ready` flips to 503 so orchestrators stop routing until the DB is back.
+- **Unhandled exception anywhere** → middleware error boundary (ADR-12): traceback to the log under a request ID, generic 500 + `error_id` to the client.
 
 ## 8. Security Notes (v1 scope)
 
 - Secrets only via environment; `.env` is gitignored; compose passes `OPENAI_API_KEY` through.
 - Ticker input validated server-side (pydantic) — length + charset, preventing prompt-shaped input reaching agents.
+- Spend endpoints are bounded (ADR-12): per-IP sliding-window rate limit + a cap on concurrent runs, so an anonymous caller can't burn the operator's OpenAI budget arbitrarily fast even before auth exists.
+- Error responses are sanitized (ADR-12): clients get a generic message + `error_id`; stack traces, SQL, and paths stay in the logs.
+- Containers run as non-root users; images and prod dependencies are audited in CI (pip-audit / npm audit).
 - No auth in v1 (single-user demo). The `users` table and `user_id` FK exist so auth (e.g., API-key header or OAuth) can be added without migration pain. Documented deliberately: an unauthenticated LLM endpoint must never be deployed publicly with a live billing key.
 
 ## 9. Future Work

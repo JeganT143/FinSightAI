@@ -25,6 +25,7 @@
 | **Full observability** | Every agent run is traced to Postgres: model, tokens, USD cost, latency. The UI renders the trace timeline — you can *see* the parallel fan-out. |
 | **Evaluation harness** | Tier 1 (CI, free): schema/verdict/score invariants + a grounding checker that catches fabricated numbers. Tier 2 (opt-in): LLM-as-judge rubric over golden fixtures from real runs. |
 | **Model routing** | Cheap models for extraction-heavy specialists, stronger models where quality is the product (synthesis, critique). A typical run costs ~**$0.02** and takes ~**35s**. |
+| **Production hardening** | Per-IP rate limits + a concurrency cap on the spend endpoints, timeouts on every agent call, sanitized errors with greppable `error_id`s, request-ID-stamped JSON logs, liveness/readiness probes, non-root containers. CI gates on types (mypy), coverage, image builds, and dependency audits. See [ADR-12](ARCHITECTURE.md#adr-12-operational-hardening--in-process-guardrails-before-infrastructure). |
 
 **Design docs:** [ARCHITECTURE.md](ARCHITECTURE.md) — system ADRs + a concrete Future Work build plan · [DESIGN.md](DESIGN.md) — the research console's UI/UX spec · [HOW_TO.md](HOW_TO.md) — file-by-file, function-by-function build order for this whole repo · [SAAS_ARCHITECTURE.md](SAAS_ARCHITECTURE.md) — the Phase 2 build plan: accounts, billing, a natural-language interface, eval-gated LLMOps CI/CD · [SAAS_DESIGN.md](SAAS_DESIGN.md) — UI/UX for every page in the Phase 2 SaaS product.
 
@@ -96,12 +97,17 @@ npm run dev                 # http://localhost:3000
 
 No Node? `uv run streamlit run frontend/demo.py` is a minimal pure-Python client.
 
+Prefer `make`? Every workflow above is a target: `make setup db migrate api web` for dev, `make up` for the full stack (`make help` lists everything).
+
 ## Tests & evals
 
 ```bash
-uv run pytest                      # unit tests + deterministic evals (free, no API calls)
-uv run pytest evals -m llm_eval    # LLM-as-judge over golden fixtures (~$0.02)
-uv run ruff check backend tests evals
+make test        # unit tests + deterministic evals (free, no API/network calls)
+make cov         # same, with the 80% coverage gate CI enforces
+make lint        # ruff check + format check
+make typecheck   # mypy (disallow_untyped_defs)
+make check       # everything CI's backend job runs
+make evals-llm   # LLM-as-judge over golden fixtures (~$0.02)
 ```
 
 The deterministic tier includes a **grounding checker**: every number in a report must exist in the specialist outputs it was synthesized from — fabricated figures fail CI.
@@ -126,6 +132,12 @@ tests/           orchestrator, API, chunking, schema tests (no LLM calls)
 
 - Per-run cost is computed from a pricing table and stored per agent; typical run ≈ **$0.02**.
 - The revision loop is bounded (`MAX_REVISIONS=2`) and a cost circuit breaker (`MAX_COST_USD=0.50`) aborts pathological runs.
+- Every agent call is bounded by `AGENT_TIMEOUT_SECONDS` — one stuck LLM call fails the run fast instead of hanging it.
+- The research endpoints are rate-limited per client IP (`RATE_LIMIT_RUNS`/window) and capped at `MAX_CONCURRENT_RUNS` parallel runs (excess → immediate 503 + Retry-After).
 - Filing ingestion is cached per accession number — re-researching a ticker skips EDGAR and embedding entirely.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
 
 > **Disclaimer:** research demo, not investment advice.

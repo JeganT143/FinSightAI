@@ -729,6 +729,62 @@ decision or a deferred item doesn't say *why*, it's not finished.
 
 ---
 
+## Phase 19 — Production hardening (ADR-12)
+
+Done after everything worked, on its own branch, because each piece is a
+response to a failure mode you can now name from experience running it.
+
+**Files, in build order:**
+
+1. `backend/core/logging.py` — `request_id_var: ContextVar[str | None]`;
+   `RequestIdFilter(logging.Filter)` stamps it on every record;
+   `JsonFormatter` (one JSON object per line); `configure_logging(level, fmt)`
+   installs a single root handler and silences `uvicorn.access` (replaced in
+   step 2). — **in:** settings — **out:** every log line anywhere carries the
+   current request's ID.
+
+2. `backend/api/middleware.py` — `RequestContextMiddleware`, **pure ASGI**
+   (BaseHTTPMiddleware re-buffers bodies; SSE must stream). Wraps `send` to
+   inject `X-Request-ID` + security headers, logs one access line with
+   duration, and catches any unhandled exception: traceback to log, generic
+   `{"detail", "error_id"}` 500 to the client — nothing internal leaks.
+
+3. `backend/api/limits.py` — `SlidingWindowLimiter(max_requests,
+   window_seconds)` with `check(key, now) -> (allowed, retry_after)` (deque
+   of timestamps per client IP); `RunGate(capacity)` with non-awaiting
+   `acquire()/release()` raising `CapacityError` when full;
+   `enforce_research_rate_limit` FastAPI dependency → 429 + Retry-After.
+   Wire both into the two `POST /api/research*` routes only — they're the
+   endpoints that spend money.
+
+4. `backend/pipeline/tracing.py` — wrap `Runner.run` in
+   `asyncio.timeout(settings.agent_timeout_seconds)`, raise a typed
+   `AgentTimeoutError` naming agent + phase. One stuck LLM call must fail
+   the run, not hang it.
+
+5. `backend/main.py` — `lifespan` (log startup config, `engine.dispose()`
+   on shutdown); split `/health` (liveness, no deps) from `/health/ready`
+   (executes `SELECT 1`, 503 when Postgres is down). `pool_pre_ping=True`
+   on the engine in `db/session.py`.
+
+6. `tests/test_hardening.py` — every mechanism above unit-tested with zero
+   LLM/network: limiter with an explicit clock, gate exhaustion, timeout via
+   a monkeypatched `Runner.run` that sleeps, error boundary via a
+   temporarily registered route that raises.
+
+7. Tooling to hold the line: mypy (`disallow_untyped_defs`, pydantic
+   plugin), `ruff format` enforced, pytest-cov with a CI gate, CI jobs for
+   docker-build + pip-audit/npm-audit, `Makefile` mirroring every CI check,
+   `.pre-commit-config.yaml` for the cheap ones. Dockerfiles get non-root
+   users + HEALTHCHECKs; compose gates the frontend on backend *readiness*.
+
+**Verify it.** `make check` (lint + typecheck + tests) passes; `docker
+compose --profile full up --build` reaches three *healthy* containers and
+`curl localhost:8000/health/ready` returns `{"status":"ready"}`; then kill
+Postgres and watch ready flip to 503 while `/health` stays 200.
+
+---
+
 ## What to do differently on your own pass
 
 1. **Decide the desk/paper (or your own surface-metaphor) split before
