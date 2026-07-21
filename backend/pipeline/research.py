@@ -67,12 +67,14 @@ async def run_research_pipeline_stream(
     user_id: uuid.UUID,
     db: AsyncSession,
     plan_limits: PlanLimit | None = None,
+    existing_report_id: uuid.UUID | None = None,
 ) -> AsyncGenerator[dict]:
     """Runs the full pipeline, yielding SSE events and persisting as it goes.
 
     `user_id` stamps ownership on the report (SAAS §5). `plan_limits` selects
-    the model tier per agent (SAAS §6.3) — the only Phase-2 change inside the
-    Phase-1 pipeline. None = Pro-tier routing (the Phase-1 defaults).
+    the model tier per agent (SAAS §6.3). `existing_report_id` lets a queue
+    worker (SAAS §7) adopt the report row the API created at enqueue time
+    instead of creating a second one.
     """
     plan = plan_limits or PLAN_LIMITS["pro"]
 
@@ -82,7 +84,13 @@ async def run_research_pipeline_stream(
         return agent if str(agent.model) == model else agent.clone(model=model)
 
     t0 = time.perf_counter()
-    report: ResearchReport = await crud.create_report(db, user_id, ticker)
+    if existing_report_id is not None:
+        found = await db.get(ResearchReport, existing_report_id)
+        if found is None:
+            raise ValueError(f"report {existing_report_id} does not exist")
+        report: ResearchReport = found
+    else:
+        report = await crud.create_report(db, user_id, ticker)
     # Commit immediately: the running row shows up in the Ledger, and a crash
     # later still leaves a traceable failed report.
     await db.commit()

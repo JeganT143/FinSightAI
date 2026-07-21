@@ -17,6 +17,19 @@ services:
       timeout: 3s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    container_name: finsight-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    profiles: ["full"]
+
   backend:
     build:
       context: .
@@ -26,11 +39,17 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-finsight}:${POSTGRES_PASSWORD:-finsight}@db:5432/${POSTGRES_DB:-finsight}
       CORS_ORIGINS: '["http://localhost:3000"]'
+      QUEUE_ENABLED: ${QUEUE_ENABLED:-true}
+      REDIS_URL: redis://redis:6379/0
+      AUTH_MODE: ${AUTH_MODE:-disabled}
+      CLERK_ISSUER: ${CLERK_ISSUER:-}
     ports:
       - "8000:8000"
     restart: unless-stopped
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     # Mirrors the image HEALTHCHECK so `depends_on: service_healthy` works
     # for the frontend: healthy = migrations applied + Postgres reachable.
@@ -40,6 +59,27 @@ services:
       timeout: 5s
       start_period: 30s
       retries: 6
+    profiles: ["full"]
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: finsight-worker
+    command: ["arq", "backend.worker.WorkerSettings"]
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-finsight}:${POSTGRES_PASSWORD:-finsight}@db:5432/${POSTGRES_DB:-finsight}
+      REDIS_URL: redis://redis:6379/0
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        # Backend runs migrations on start; the worker must not race them.
+        condition: service_healthy
     profiles: ["full"]
 
   frontend:
