@@ -1,9 +1,13 @@
+import { ClerkProvider, UserButton } from "@clerk/nextjs";
+import { auth } from "@clerk/nextjs/server";
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, IBM_Plex_Sans, Newsreader } from "next/font/google";
 import Image from "next/image";
 import Link from "next/link";
 import Script from "next/script";
+import { ClerkTokenBridge } from "@/components/AuthTokenBridge";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { CLERK_ENABLED, clerkAppearance } from "@/lib/auth-config";
 import "./globals.css";
 
 // Sets data-theme on <html> BEFORE hydration, so there's no flash of the
@@ -47,7 +51,14 @@ export const metadata: Metadata = {
     "A team of AI analysts researches any US-listed stock in parallel, grounded in SEC filings, reviewed by an adversarial critic before publication.",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+function AppShell({
+  children,
+  signedIn,
+}: {
+  children: React.ReactNode;
+  /** null = auth disabled (dev mode): no auth affordances at all. */
+  signedIn: boolean | null;
+}) {
   return (
     <html
       lang="en"
@@ -69,15 +80,45 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </span>
             </Link>
             <div className="flex items-center gap-6">
-              <div className="flex items-center gap-7 font-mono text-sm uppercase tracking-widest">
-                <Link href="/" className="text-text-muted transition-colors hover:text-brand">
+              <div className="hidden items-center gap-7 font-mono text-sm uppercase tracking-widest sm:flex">
+                <Link href="/console" className="text-text-muted transition-colors hover:text-brand">
                   Console
                 </Link>
                 <Link href="/reports" className="text-text-muted transition-colors hover:text-brand">
                   Ledger
                 </Link>
+                <Link href="/chat" className="text-text-muted transition-colors hover:text-brand">
+                  Chat
+                </Link>
+                {signedIn === false && (
+                  <Link
+                    href="/pricing"
+                    className="text-text-muted transition-colors hover:text-brand"
+                  >
+                    Pricing
+                  </Link>
+                )}
               </div>
               <ThemeToggle />
+              {signedIn === true && (
+                <>
+                  <Link
+                    href="/account/billing"
+                    className="font-mono text-sm uppercase tracking-widest text-text-muted transition-colors hover:text-brand"
+                  >
+                    Account
+                  </Link>
+                  <UserButton appearance={clerkAppearance} />
+                </>
+              )}
+              {signedIn === false && (
+                <Link
+                  href="/sign-in"
+                  className="rounded-lg border border-border bg-surface px-3.5 py-1.5 font-mono text-sm uppercase tracking-widest text-text transition-colors hover:border-brand"
+                >
+                  Sign in
+                </Link>
+              )}
             </div>
           </nav>
         </header>
@@ -89,5 +130,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </footer>
       </body>
     </html>
+  );
+}
+
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  if (!CLERK_ENABLED) {
+    return <AppShell signedIn={null}>{children}</AppShell>;
+  }
+  const { userId } = await auth();
+  return (
+    <ClerkProvider appearance={clerkAppearance}>
+      <AppShell signedIn={Boolean(userId)}>
+        <ClerkTokenBridge>{children}</ClerkTokenBridge>
+      </AppShell>
+    </ClerkProvider>
   );
 }

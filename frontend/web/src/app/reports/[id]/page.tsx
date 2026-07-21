@@ -4,6 +4,7 @@ import { CriticCard } from "@/components/CriticCard";
 import { ReportPaper } from "@/components/ReportPaper";
 import { TraceTimeline } from "@/components/TraceTimeline";
 import { fetchReport } from "@/lib/api";
+import { serverToken } from "@/lib/server-auth";
 import { formatDuration, formatMoney, formatTokens } from "@/lib/score";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +20,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 export default async function DossierPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const detail = await fetchReport(id).catch(() => {
+  const detail = await fetchReport(id, await serverToken()).catch(() => {
     throw new Error("The backend is unreachable — start it and reload.");
   });
   if (!detail) notFound();

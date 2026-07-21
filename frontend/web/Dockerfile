@@ -8,6 +8,12 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+# NEXT_PUBLIC_* values are inlined into the bundle at BUILD time — deployed
+# images must be built with these args (see infra/ and docker-compose.yml).
+ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=""
+ARG NEXT_PUBLIC_API_URL=""
+ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY \
+    NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 RUN npm run build
 
 FROM node:22-alpine

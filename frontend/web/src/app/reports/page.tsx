@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { VerdictChip } from "@/components/VerdictChip";
 import { fetchReports } from "@/lib/api";
+import { serverToken } from "@/lib/server-auth";
 import { formatDuration, formatMoney, scoreTone, TONE_TEXT } from "@/lib/score";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +27,7 @@ export default async function LedgerPage({
   let reports: Awaited<ReturnType<typeof fetchReports>>["reports"] = [];
   let total = 0;
   try {
-    const data = await fetchReports({ ticker, limit: 50 });
+    const data = await fetchReports({ ticker, limit: 50 }, await serverToken());
     reports = data.reports;
     total = data.total;
   } catch {

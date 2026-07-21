@@ -9,6 +9,7 @@
  */
 
 import { useCallback, useReducer, useRef } from "react";
+import { useAuthToken } from "@/components/AuthTokenBridge";
 import type {
   AgentKey,
   CriticVerdictEvent,
@@ -16,7 +17,7 @@ import type {
   PipelineEvent,
 } from "./events";
 import type { Report, SpecialistOutput, Usage, UsageSummary } from "./types";
-import { PUBLIC_API_URL } from "./api";
+import { authHeaders, PUBLIC_API_URL } from "./api";
 
 export type NodeState = "idle" | "working" | "done" | "failed";
 
@@ -36,7 +37,7 @@ export interface TapeEntry {
 }
 
 export interface RunState {
-  status: "idle" | "running" | "complete" | "error" | "disconnected";
+  status: "idle" | "running" | "complete" | "error" | "disconnected" | "quota_exceeded";
   ticker: string;
   reportId?: string;
   startedAt?: number;
@@ -85,6 +86,7 @@ type Action =
   | { type: "event"; event: PipelineEvent }
   | { type: "disconnected" }
   | { type: "failed"; message: string }
+  | { type: "quota_exceeded"; message: string }
   | { type: "reset" };
 
 const TAPE_CAP = 200;
@@ -236,6 +238,9 @@ function reducer(state: RunState, action: Action): RunState {
       return state.status === "running" ? { ...state, status: "disconnected" } : state;
     case "failed":
       return { ...state, status: "error", error: action.message };
+    case "quota_exceeded":
+      // A limit, not an error (SAAS_DESIGN §8) — the console renders it hold-toned.
+      return { ...state, status: "quota_exceeded", error: action.message };
     case "reset":
       return initialRunState;
   }
@@ -244,24 +249,32 @@ function reducer(state: RunState, action: Action): RunState {
 export function useResearchStream() {
   const [state, dispatch] = useReducer(reducer, initialRunState);
   const abortRef = useRef<AbortController | null>(null);
+  const getToken = useAuthToken();
 
-  const start = useCallback(async (ticker: string) => {
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    dispatch({ type: "run_requested", ticker });
+  const start = useCallback(
+    async (ticker: string) => {
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      dispatch({ type: "run_requested", ticker });
 
-    try {
-      const res = await fetch(`${PUBLIC_API_URL}/api/research/stream`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticker }),
-        signal: controller.signal,
-      });
-      if (!res.ok || !res.body) {
-        const detail = await res.text().catch(() => "");
-        throw new Error(`Backend refused the run (${res.status}). ${detail.slice(0, 200)}`);
-      }
+      try {
+        const token = await getToken();
+        const res = await fetch(`${PUBLIC_API_URL}/api/research/stream`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeaders(token) },
+          body: JSON.stringify({ ticker }),
+          signal: controller.signal,
+        });
+        if (res.status === 402) {
+          const body = await res.json().catch(() => ({ detail: "Plan limit reached." }));
+          dispatch({ type: "quota_exceeded", message: body.detail ?? "Plan limit reached." });
+          return;
+        }
+        if (!res.ok || !res.body) {
+          const detail = await res.text().catch(() => "");
+          throw new Error(`Backend refused the run (${res.status}). ${detail.slice(0, 200)}`);
+        }
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -301,7 +314,7 @@ export function useResearchStream() {
               : "Unexpected streaming error",
       });
     }
-  }, []);
+  }, [getToken]);
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
