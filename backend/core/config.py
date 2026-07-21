@@ -8,9 +8,7 @@ ENV_FILE = os.path.join(BASE_DIR, ".env")
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file=ENV_FILE, env_file_encoding="utf-8", extra="ignore"
-    )
+    model_config = SettingsConfigDict(env_file=ENV_FILE, env_file_encoding="utf-8", extra="ignore")
 
     openai_api_key: str
     database_url: str

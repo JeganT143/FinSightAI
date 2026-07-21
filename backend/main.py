@@ -1,4 +1,5 @@
 import logging
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -23,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     logger.info(
         "%s v%s starting (models: specialists=%s, synthesizer=%s, critic=%s)",
         settings.app_name,
@@ -60,7 +61,7 @@ app.include_router(router)
 
 
 @app.get("/health")
-async def health():
+async def health() -> dict:
     """Liveness: process is up. No dependencies checked — a DB blip must not
     make an orchestrator restart the API container."""
     return {
@@ -70,8 +71,8 @@ async def health():
     }
 
 
-@app.get("/health/ready")
-async def ready(db: AsyncSession = Depends(get_db)):
+@app.get("/health/ready", response_model=None)
+async def ready(db: AsyncSession = Depends(get_db)) -> JSONResponse | dict:
     """Readiness: can this instance actually serve? Fails when Postgres is
     unreachable, so load balancers / compose healthchecks stop routing to it."""
     try:

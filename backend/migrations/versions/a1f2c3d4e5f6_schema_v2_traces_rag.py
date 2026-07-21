@@ -118,7 +118,15 @@ def downgrade() -> None:
 
     op.drop_index("ix_research_reports_created_at", table_name="research_reports")
     op.drop_index("ix_research_reports_ticker", table_name="research_reports")
-    for col in ("latency_ms", "error", "critic", "revision_count", "report", "overall_score", "verdict"):
+    for col in (
+        "latency_ms",
+        "error",
+        "critic",
+        "revision_count",
+        "report",
+        "overall_score",
+        "verdict",
+    ):
         op.drop_column("research_reports", col)
 
     op.add_column("research_reports", sa.Column("report_v1", sa.Text(), nullable=True))
@@ -130,5 +138,7 @@ def downgrade() -> None:
     op.add_column("research_reports", sa.Column("fundamentals_output", sa.Text(), nullable=True))
     op.add_column("research_reports", sa.Column("risk_output", sa.Text(), nullable=True))
     op.add_column("research_reports", sa.Column("sentiment_output", sa.Text(), nullable=True))
-    op.add_column("research_reports", sa.Column("critic_challenges_found", sa.Integer(), nullable=True))
+    op.add_column(
+        "research_reports", sa.Column("critic_challenges_found", sa.Integer(), nullable=True)
+    )
     op.add_column("research_reports", sa.Column("critic_assessment", sa.Text(), nullable=True))

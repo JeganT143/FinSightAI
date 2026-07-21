@@ -29,8 +29,10 @@ dev = [
     "aiosqlite>=0.21.0",
     "ipykernel>=7.2.0",
     "jupyter>=1.1.1",
+    "mypy>=2.3.0",
     "pytest>=8.3.0",
     "pytest-asyncio>=1.0.0",
+    "pytest-cov>=7.1.0",
     "ruff>=0.12.0",
     "streamlit>=1.58.0",
 ]
@@ -42,6 +44,21 @@ markers = [
     "llm_eval: evals that call the OpenAI API (cost money; run explicitly with -m llm_eval)",
 ]
 addopts = "-m 'not llm_eval'"
+
+[tool.mypy]
+python_version = "3.13"
+plugins = ["pydantic.mypy"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = true
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+# yfinance ships no type stubs; its results are normalized into typed dicts
+# at the tool boundary (backend/tools/market.py), so untyped internals are contained.
+module = ["yfinance.*"]
+ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 100

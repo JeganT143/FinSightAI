@@ -59,9 +59,7 @@ def _specialists_payload(outputs: dict[str, SpecialistOutput], overall_score: fl
     )
 
 
-async def run_research_pipeline_stream(
-    ticker: str, db: AsyncSession
-) -> AsyncGenerator[dict]:
+async def run_research_pipeline_stream(ticker: str, db: AsyncSession) -> AsyncGenerator[dict]:
     """Runs the full pipeline, yielding SSE events and persisting as it goes."""
     t0 = time.perf_counter()
     report: ResearchReport = await crud.create_report(db, ticker)
@@ -102,7 +100,11 @@ async def run_research_pipeline_stream(
         }
 
         # ---- Phase 1: parallel specialist research -------------------------
-        yield {"type": "phase", "phase": "research", "message": "Specialist agents researching in parallel..."}
+        yield {
+            "type": "phase",
+            "phase": "research",
+            "message": "Specialist agents researching in parallel...",
+        }
 
         async def run_specialist(pillar: str) -> TracedRun:
             return await traced_run(SPECIALISTS[pillar], f"Analyze {ticker}", phase="research")
@@ -164,7 +166,11 @@ async def run_research_pipeline_stream(
         critic_output: CriticOutput | None = None
 
         while True:
-            yield {"type": "phase", "phase": "critique", "message": "Adversarial review in progress..."}
+            yield {
+                "type": "phase",
+                "phase": "critique",
+                "message": "Adversarial review in progress...",
+            }
             yield {"type": "agent_started", "agent": "critic", "phase": "critique"}
 
             critic_run = await traced_run(

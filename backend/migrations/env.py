@@ -17,9 +17,7 @@ config = context.config
 # Set the database URL from our settings
 # IMPORTANT: use psycopg2 (sync) not asyncpg (async)
 # Alembic migrations are synchronous — they don't need async
-sync_url = settings.database_url.replace(
-    "postgresql+asyncpg://", "postgresql+psycopg2://"
-)
+sync_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
 config.set_main_option("sqlalchemy.url", sync_url)
 
 # Interpret the config file for Python logging

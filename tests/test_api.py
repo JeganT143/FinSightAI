@@ -82,14 +82,10 @@ async def test_research_stream_emits_sse(client, session_factory, monkeypatch):
         yield {"type": "start", "report_id": "x", "ticker": ticker}
         yield {"type": "complete", "report_id": "x", "ticker": ticker}
 
-    monkeypatch.setattr(
-        "backend.api.routes_research.run_research_pipeline_stream", fake_pipeline
-    )
+    monkeypatch.setattr("backend.api.routes_research.run_research_pipeline_stream", fake_pipeline)
     monkeypatch.setattr("backend.api.routes_research.AsyncSessionLocal", session_factory)
 
-    async with client.stream(
-        "POST", "/api/research/stream", json={"ticker": "NVDA"}
-    ) as resp:
+    async with client.stream("POST", "/api/research/stream", json={"ticker": "NVDA"}) as resp:
         assert resp.status_code == 200
         assert resp.headers["content-type"].startswith("text/event-stream")
         raw = "".join([chunk async for chunk in resp.aiter_text()])

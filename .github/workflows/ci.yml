@@ -5,9 +5,18 @@ on:
     branches: [main]
   pull_request:
 
+# Least privilege: nothing in this workflow writes to the repo.
+permissions:
+  contents: read
+
+# Superseded runs on the same branch are wasted compute — cancel them.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
-    name: Backend — lint, tests, deterministic evals
+    name: Backend — lint, format, types, tests, deterministic evals
     runs-on: ubuntu-latest
     env:
       # Dummies: unit tests run on SQLite and never call OpenAI (ADR-9).
@@ -24,11 +33,17 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen
 
-      - name: Lint (ruff)
+      - name: Lint (ruff check)
         run: uv run ruff check backend tests evals
 
-      - name: Unit tests + deterministic evals
-        run: uv run pytest tests evals -q
+      - name: Format (ruff format --check)
+        run: uv run ruff format --check backend tests evals
+
+      - name: Type check (mypy)
+        run: uv run mypy backend
+
+      - name: Unit tests + deterministic evals (with coverage gate)
+        run: uv run pytest tests evals -q --cov=backend --cov-report=term-missing --cov-fail-under=80
 
   frontend:
     name: Frontend — lint + build
@@ -53,3 +68,51 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  docker:
+    name: Docker — both images build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: backend/Dockerfile
+          push: false
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max
+
+      - name: Build frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend/web
+          file: frontend/web/Dockerfile
+          push: false
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,scope=frontend,mode=max
+
+  audit:
+    name: Security — dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Audit Python dependencies (pip-audit against the lockfile)
+        run: |
+          uv export --frozen --no-dev --no-emit-project -o requirements.txt
+          uvx pip-audit -r requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Audit frontend production dependencies
+        working-directory: frontend/web
+        run: npm audit --omit=dev --audit-level=high

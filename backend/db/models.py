@@ -80,7 +80,9 @@ class AgentRun(Base):
         ForeignKey("research_reports.id", ondelete="CASCADE"), index=True
     )
     agent_name: Mapped[str] = mapped_column(String(50), nullable=False)
-    phase: Mapped[str] = mapped_column(String(30), nullable=False)  # research|synthesis|critique|revision
+    phase: Mapped[str] = mapped_column(
+        String(30), nullable=False
+    )  # research|synthesis|critique|revision
     status: Mapped[str] = mapped_column(String(20), default="complete")  # complete|failed
     model: Mapped[str] = mapped_column(String(50), nullable=False)
 

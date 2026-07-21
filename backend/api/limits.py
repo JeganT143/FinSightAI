@@ -76,9 +76,7 @@ class RunGate:
 
     def acquire(self) -> None:
         if self.active >= self.capacity:
-            raise CapacityError(
-                f"All {self.capacity} research slots are busy; retry shortly."
-            )
+            raise CapacityError(f"All {self.capacity} research slots are busy; retry shortly.")
         self.active += 1
 
     def release(self) -> None:

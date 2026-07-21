@@ -1,5 +1,6 @@
 import json
 import uuid
+from collections.abc import AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -30,13 +31,11 @@ def _acquire_run_slot() -> None:
     try:
         run_gate.acquire()
     except CapacityError as e:
-        raise HTTPException(
-            status_code=503, detail=str(e), headers={"Retry-After": "60"}
-        ) from e
+        raise HTTPException(status_code=503, detail=str(e), headers={"Retry-After": "60"}) from e
 
 
 @router.post("/research", dependencies=[Depends(enforce_research_rate_limit)])
-async def research(request: ResearchRequest, db: AsyncSession = Depends(get_db)):
+async def research(request: ResearchRequest, db: AsyncSession = Depends(get_db)) -> dict:
     """Non-streaming research run — returns the final `complete` event payload.
 
     Failures propagate to the middleware error boundary: the client gets a
@@ -51,11 +50,11 @@ async def research(request: ResearchRequest, db: AsyncSession = Depends(get_db))
 
 
 @router.post("/research/stream", dependencies=[Depends(enforce_research_rate_limit)])
-async def research_stream(request: ResearchRequest):
+async def research_stream(request: ResearchRequest) -> StreamingResponse:
     """Run the pipeline, streaming SSE events (see ARCHITECTURE.md §6 for the protocol)."""
     _acquire_run_slot()
 
-    async def event_generator():
+    async def event_generator() -> AsyncGenerator[str]:
         # Session is created inside the generator so it lives for the whole stream.
         try:
             async with AsyncSessionLocal() as db:
@@ -101,7 +100,7 @@ async def list_reports(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
-):
+) -> ReportListResponse:
     reports, total = await crud.list_reports(db, ticker=ticker, limit=limit, offset=offset)
     return ReportListResponse(
         reports=[_summary(r) for r in reports], total=total, limit=limit, offset=offset
@@ -109,7 +108,9 @@ async def list_reports(
 
 
 @router.get("/reports/{report_id}", response_model=ReportDetailResponse)
-async def get_report(report_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_report(
+    report_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> ReportDetailResponse:
     report = await crud.get_report(db, report_id)
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
