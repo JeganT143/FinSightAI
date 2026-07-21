@@ -52,4 +52,7 @@ async def judge_report(specialists: dict, report: dict) -> JudgeScores:
         ],
         response_format=JudgeScores,
     )
-    return response.choices[0].message.parsed
+    parsed = response.choices[0].message.parsed
+    if parsed is None:
+        raise ValueError("judge model returned no parsed scores (refusal or length cutoff)")
+    return parsed

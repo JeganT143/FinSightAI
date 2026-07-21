@@ -7,12 +7,18 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.limits import CapacityError, enforce_research_rate_limit, run_gate
-from backend.billing.limits import QuotaExceededError, check_and_reserve_run, plan_limits_for
+from backend.billing.limits import (
+    PlanLimit,
+    QuotaExceededError,
+    check_and_reserve_run,
+    plan_limits_for,
+)
 from backend.core.auth import get_current_user
 from backend.core.config import settings
 from backend.db import crud
 from backend.db.models import ResearchReport, User
 from backend.db.session import AsyncSessionLocal, get_db
+from backend.deploy.canary import apply_canary
 from backend.jobs.queue import get_arq_pool
 from backend.jobs.stream import job_event_stream
 from backend.pipeline.research import (
@@ -54,6 +60,11 @@ def _sse(event: dict) -> str:
     return f"data: {json.dumps(event)}\n\n"
 
 
+def _plan_for(user: User) -> PlanLimit:
+    """Plan-tier models, with the §10 canary slice applied on top."""
+    return apply_canary(user.id, plan_limits_for(user))
+
+
 async def _enqueue_run(db: AsyncSession, user: User, ticker: str) -> ResearchReport:
     """Queued mode (SAAS §7): reserve quota, create the report row, enqueue."""
     await _reserve_quota(db, user)
@@ -91,7 +102,7 @@ async def research(
     _acquire_run_slot()
     try:
         await _reserve_quota(db, user)
-        return await run_research_pipeline(request.ticker, user.id, db, plan_limits_for(user))
+        return await run_research_pipeline(request.ticker, user.id, db, _plan_for(user))
     finally:
         run_gate.release()
 
@@ -139,7 +150,7 @@ async def research_stream(
     except BaseException:
         run_gate.release()
         raise
-    user_id, plan = user.id, plan_limits_for(user)
+    user_id, plan = user.id, _plan_for(user)
 
     async def event_generator() -> AsyncGenerator[str]:
         # Session is created inside the generator so it lives for the whole stream.

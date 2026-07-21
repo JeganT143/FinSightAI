@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     concierge_model: str = "gpt-4o"
     intent_model: str = "gpt-4o-mini"  # cheap, fast intent classification
 
+    # --- Canary rollout (SAAS §10) ---
+    synthesizer_model_canary: str = ""  # unset = no canary
+    canary_percent: int = 0  # 0-100 slice of users on the candidate model
+
     # --- RAG over SEC filings (ADR-5) ---
     # SEC requires a User-Agent identifying the requester: https://www.sec.gov/os/accessing-edgar-data
     sec_user_agent: str = "FinSightAI/0.2 (research demo; contact: engjegant@gmail.com)"

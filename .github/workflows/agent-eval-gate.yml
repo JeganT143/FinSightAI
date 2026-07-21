@@ -1,0 +1,48 @@
+# LLMOps eval gate (SAAS §10): prompt/schema/model-routing changes must clear
+# the LLM-as-judge floor before merge. Costs real money (~$0.05/run), so it
+# triggers only on the paths that can change agent behavior.
+#
+# Requires the OPENAI_API_KEY repository secret.
+
+name: Agent eval gate
+
+on:
+  pull_request:
+    paths:
+      - "backend/agents/**"
+      - "backend/schemas/agents.py"
+      - "backend/schemas/concierge.py"
+      - "backend/concierge/**"
+      - "backend/core/config.py"
+      - "evals/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  judge:
+    name: LLM-as-judge over golden fixtures (floor 3.5)
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/ci
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Deterministic routing evals (free, always on)
+        run: uv run pytest evals -q -k concierge_routing
+
+      - name: LLM-as-judge gate
+        run: uv run pytest evals -m llm_eval -q --judge-floor=3.5
