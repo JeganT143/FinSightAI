@@ -5,10 +5,12 @@ import type { ReportDetail, ReportListResponse } from "./types";
  * Server components → backend: BACKEND_URL (compose network) with the public URL as fallback.
  * `token` is the Clerk session JWT (SAAS §3); null when auth is disabled.
  */
-export const PUBLIC_API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// `||`, not `??`: the Docker build arg can inline these as EMPTY STRINGS,
+// which are defined-but-useless — they must still fall through.
+export const PUBLIC_API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 function serverApiUrl(): string {
-  return process.env.BACKEND_URL ?? PUBLIC_API_URL;
+  return process.env.BACKEND_URL || PUBLIC_API_URL;
 }
 
 export function authHeaders(token: string | null): HeadersInit {
