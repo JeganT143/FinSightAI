@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 from backend.api.middleware import RequestContextMiddleware  # noqa: E402
 from backend.api.routes_account import router as account_router  # noqa: E402
 from backend.api.routes_billing import router as billing_router  # noqa: E402
+from backend.api.routes_concierge import router as concierge_router  # noqa: E402
 from backend.api.routes_research import router  # noqa: E402
 from backend.core.config import settings  # noqa: E402
 from backend.core.logging import configure_logging  # noqa: E402
@@ -69,6 +70,7 @@ app.add_middleware(RequestContextMiddleware)
 app.include_router(router)
 app.include_router(account_router)
 app.include_router(billing_router)
+app.include_router(concierge_router)
 
 
 @app.get("/health")
