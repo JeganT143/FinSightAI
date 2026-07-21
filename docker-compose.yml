@@ -3,15 +3,16 @@ services:
     image: pgvector/pgvector:pg17
     container_name: finsight-db
     environment:
-      POSTGRES_USER: finsight
-      POSTGRES_PASSWORD: finsight
-      POSTGRES_DB: finsight
+      POSTGRES_USER: ${POSTGRES_USER:-finsight}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-finsight}
+      POSTGRES_DB: ${POSTGRES_DB:-finsight}
     ports:
       - "5432:5432"
     volumes:
       - finsight_pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U finsight -d finsight"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-finsight} -d ${POSTGRES_DB:-finsight}"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -23,13 +24,22 @@ services:
     container_name: finsight-backend
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
-      DATABASE_URL: postgresql+asyncpg://finsight:finsight@db:5432/finsight
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-finsight}:${POSTGRES_PASSWORD:-finsight}@db:5432/${POSTGRES_DB:-finsight}
       CORS_ORIGINS: '["http://localhost:3000"]'
     ports:
       - "8000:8000"
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
+    # Mirrors the image HEALTHCHECK so `depends_on: service_healthy` works
+    # for the frontend: healthy = migrations applied + Postgres reachable.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=4)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 6
     profiles: ["full"]
 
   frontend:
@@ -42,8 +52,10 @@ services:
       BACKEND_URL: http://backend:8000
     ports:
       - "3000:3000"
+    restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     profiles: ["full"]
 
 volumes:
