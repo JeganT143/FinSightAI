@@ -1,4 +1,5 @@
 import os
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -27,6 +28,16 @@ class Settings(BaseSettings):
     # --- Pipeline guardrails (ADR-6) ---
     max_revisions: int = 2
     max_cost_usd: float = 0.50  # circuit breaker: abort revision loop past this spend
+    agent_timeout_seconds: float = 180.0  # one hung LLM call must not hang the run forever
+
+    # --- Operational guardrails (ADR-12) ---
+    max_concurrent_runs: int = 2  # parallel pipeline runs; excess gets 503 + Retry-After
+    rate_limit_runs: int = 10  # research runs per client IP per window
+    rate_limit_window_seconds: int = 3600
+
+    # --- Logging (ADR-12) ---
+    log_level: str = "INFO"
+    log_format: Literal["text", "json"] = "text"  # "json" in containers (see compose)
 
     # --- RAG over SEC filings (ADR-5) ---
     # SEC requires a User-Agent identifying the requester: https://www.sec.gov/os/accessing-edgar-data

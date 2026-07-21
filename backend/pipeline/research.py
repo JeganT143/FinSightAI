@@ -13,6 +13,7 @@ one loop, and that loop is bounded by max_revisions and max_cost_usd.
 
 import asyncio
 import json
+import logging
 import time
 from collections.abc import AsyncGenerator
 
@@ -35,6 +36,8 @@ from backend.schemas.agents import (
     SpecialistOutput,
     compute_overall_score,
 )
+
+logger = logging.getLogger(__name__)
 
 SPECIALISTS = {
     "fundamentals": fundamentals_agent,
@@ -66,6 +69,7 @@ async def run_research_pipeline_stream(
     # later still leaves a traceable failed report.
     await db.commit()
     report_id = str(report.id)
+    logger.info("run started: report=%s ticker=%s", report_id, ticker)
 
     total_cost = 0.0
     total_input_tokens = 0
@@ -238,6 +242,20 @@ async def run_research_pipeline_stream(
             latency_ms=latency_ms,
         )
 
+        logger.info(
+            "run complete: report=%s ticker=%s verdict=%s score=%.1f revisions=%d "
+            "tokens=%d/%d cost=$%.4f latency=%dms",
+            report_id,
+            ticker,
+            draft.verdict,
+            draft.overall_score,
+            revision_count,
+            total_input_tokens,
+            total_output_tokens,
+            total_cost,
+            latency_ms,
+        )
+
         yield {
             "type": "complete",
             "report_id": report_id,
@@ -254,8 +272,16 @@ async def run_research_pipeline_stream(
         }
 
     except Exception as e:
+        # Full detail goes to the log and the report row; the SSE event (readable
+        # by any anonymous client in Phase 1) gets the exception class only.
+        logger.exception("run failed: report=%s ticker=%s", report_id, ticker)
         await crud.fail_report(db, report, str(e))
-        yield {"type": "error", "message": str(e), "report_id": report_id}
+        yield {
+            "type": "error",
+            "message": f"Research run failed ({type(e).__name__}). "
+            "Full detail is stored on the report.",
+            "report_id": report_id,
+        }
         raise
 
 

@@ -12,6 +12,9 @@ engine = create_async_engine(
     echo=False,
     pool_size=10,
     max_overflow=20,
+    # Validate pooled connections before use — a restarted Postgres otherwise
+    # surfaces as a mid-request "connection closed" on the first query.
+    pool_pre_ping=True,
 )
 
 AsyncSessionLocal = async_sessionmaker(

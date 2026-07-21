@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.api.limits import CapacityError, enforce_research_rate_limit, run_gate
 from backend.db import crud
 from backend.db.models import ResearchReport
 from backend.db.session import AsyncSessionLocal, get_db
@@ -24,32 +25,53 @@ from backend.schemas.research import (
 router = APIRouter(prefix="/api", tags=["research"])
 
 
-@router.post("/research")
+def _acquire_run_slot() -> None:
+    """Claim a concurrency slot or turn the caller away with 503 + Retry-After."""
+    try:
+        run_gate.acquire()
+    except CapacityError as e:
+        raise HTTPException(
+            status_code=503, detail=str(e), headers={"Retry-After": "60"}
+        ) from e
+
+
+@router.post("/research", dependencies=[Depends(enforce_research_rate_limit)])
 async def research(request: ResearchRequest, db: AsyncSession = Depends(get_db)):
-    """Non-streaming research run — returns the final `complete` event payload."""
+    """Non-streaming research run — returns the final `complete` event payload.
+
+    Failures propagate to the middleware error boundary: the client gets a
+    clean 500 with an error_id, the log gets the traceback, and the failed
+    report row (with full detail) is queryable at /reports/{id}.
+    """
+    _acquire_run_slot()
     try:
         return await run_research_pipeline(request.ticker, db)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    finally:
+        run_gate.release()
 
 
-@router.post("/research/stream")
+@router.post("/research/stream", dependencies=[Depends(enforce_research_rate_limit)])
 async def research_stream(request: ResearchRequest):
     """Run the pipeline, streaming SSE events (see ARCHITECTURE.md §6 for the protocol)."""
+    _acquire_run_slot()
 
     async def event_generator():
         # Session is created inside the generator so it lives for the whole stream.
-        async with AsyncSessionLocal() as db:
-            try:
-                async for event in run_research_pipeline_stream(request.ticker, db):
-                    yield f"data: {json.dumps(event)}\n\n"
-                await db.commit()
-            except Exception as e:
-                # fail_report was already flushed by the pipeline; keep it.
-                await db.commit()
-                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+        try:
+            async with AsyncSessionLocal() as db:
+                try:
+                    async for event in run_research_pipeline_stream(request.ticker, db):
+                        yield f"data: {json.dumps(event)}\n\n"
+                    await db.commit()
+                except Exception:
+                    # The pipeline already emitted a sanitized `error` event and
+                    # persisted the failure; commit the fail_report row and end
+                    # the stream cleanly.
+                    await db.commit()
 
-        yield "event: done\ndata: {}\n\n"
+            yield "event: done\ndata: {}\n\n"
+        finally:
+            run_gate.release()
 
     return StreamingResponse(
         event_generator(),
