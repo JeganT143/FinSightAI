@@ -1,12 +1,16 @@
 # FinSightAI — Phase 2: SaaS Platform, LLMOps & Deployment
 
-> **Status:** Planning document — no code written against this yet. Same
-> spirit as [HOW_TO.md](HOW_TO.md): every section is a concrete build order
-> — exact files, exact function/class signatures with input/output, exact
-> "connects to" wiring — not a feature list or an essay. Short "why" lines
-> point at the actual constraint; they are not the point of the document.
+> **Status (updated 2026-07-21): §3–§10 are BUILT** on the
+> `feat/production-hardening` branch — identity, tenancy, metering, billing,
+> async execution, the Concierge, and the LLMOps gate all exist as code with
+> tests, following the build orders below. Two recorded deviations: §7 keeps
+> the one-call SSE contract *in addition to* the reattach handshake (noted in
+> §7), and §11's deployment target changed from AWS to **Azure Container
+> Apps** (noted in §11; implemented in `infra/azure/` + [DEPLOYMENT.md](DEPLOYMENT.md)).
+> Every section remains a concrete build order — exact files, exact
+> function/class signatures with input/output, exact "connects to" wiring.
 > Read [ARCHITECTURE.md](ARCHITECTURE.md) first — everything here **wraps**
-> the existing research engine (its ADR-1 through ADR-11, and every file
+> the existing research engine (its ADR-1 through ADR-12, and every file
 > HOW_TO.md Phases 3–13 built); none of that changes.
 
 ## Table of contents
@@ -323,6 +327,17 @@ unchanged; only its *caller* changes.
 same moment, both complete — and killing the worker process mid-run leaves
 the job re-picked-up (Arq's default retry behavior) rather than silently lost.
 
+**As built (deviations, deliberate):** `QUEUE_ENABLED=false` preserves the
+Phase-1 inline path so local dev and the unit tier need no Redis. When
+enabled, `POST /api/research/stream` *keeps its one-call SSE contract* (it
+subscribes to the job channel before enqueueing, then relays) so the
+frontend's `useResearchStream` needed zero protocol changes — and the
+two-step handshake (`POST /api/research` → 202 → `GET
+/api/jobs/{id}/stream`) exists alongside it for reconnect support. Finished
+runs replay from a DB snapshot; a mid-run reconnect misses interim events
+(pub/sub has no replay) — Redis Streams is the noted upgrade if that ever
+matters.
+
 ---
 
 ## 8. The Concierge (natural-language interface)
@@ -464,11 +479,18 @@ locally before it can be merged.
 
 ## 11. Deployment infrastructure
 
-**Decision.** AWS ECS on Fargate + RDS (Postgres/pgvector) + ElastiCache
-(Redis) + Vercel (frontend), Terraform-managed. Recommended **first**
-target: a single PaaS (Render/Fly.io) — this section is the *destination*
-once traffic justifies the extra control, not the Phase-2 starting point
-(see §16).
+**Decision (superseded 2026-07-21).** Originally AWS ECS/RDS/ElastiCache via
+Terraform, with a PaaS as the recommended first target. **Actual target:
+Azure Container Apps + Azure Database for PostgreSQL Flexible Server
+(pgvector) + Redis-as-a-container, Bicep-managed** — see `infra/azure/main.bicep`
+and [DEPLOYMENT.md](DEPLOYMENT.md). Why the change: the operator has $100 of
+Azure student credits (≈5–6 months of this footprint at ~$15–20/mo), and
+Container Apps *is* the "single PaaS first" this section recommended —
+scale-to-zero consumption pricing, managed TLS for the custom domain
+(finsightai.jegant.dev), one Bicep file instead of six Terraform ones, and
+the same one-image/two-process-types split (api + worker) the AWS plan
+specified. The AWS build order below stands as the migration reference if
+the project ever outgrows credits-funded hosting.
 
 **Build order (the AWS destination, for when it's needed):**
 
@@ -600,23 +622,26 @@ field is exactly this).
 
 ## 16. Phased rollout, with exit criteria per phase
 
-- **2a — Identity (§3).** *Exit criteria:* `tests/test_tenant_isolation.py`
-  (§5) passes; every existing Phase-1 route requires and uses
-  `get_current_user`. Deploy target: a single PaaS (Render/Fly.io), **not**
-  §11's Terraform/AWS setup yet — validate identity against real users
-  before also taking on infrastructure complexity.
-- **2b — Billing (§4, §6).** *Exit criteria:* a test-mode Stripe subscription
-  round-trips through Checkout → webhook → local `Subscription` row → a
-  free user hitting `QuotaExceededError` and seeing an upgrade prompt.
-- **2c — Async execution (§7).** *Exit criteria:* two concurrent research
-  requests from different users both complete correctly; killing the worker
-  mid-run doesn't lose the job.
-- **2d — Concierge (§8, §9).** *Exit criteria:* `evals/test_concierge_routing.py`
-  passes, specifically the `advice_request` fixtures at 100%.
-- **2e — Production infra + LLMOps (§10–§13).** *Exit criteria:* a
-  deliberately-bad agent-instruction change is blocked by
-  `agent-eval-gate.yml` before merge; every §12 SLO has a real alert
-  attached, not a hunch.
+- **2a — Identity (§3).** ✅ **Built** — `tests/test_tenant_isolation.py` and
+  `tests/test_auth.py` pass; every Phase-1 route requires `get_current_user`.
+  Deploy target became Azure Container Apps (§11 update) rather than
+  Render/Fly — it fills the same "single PaaS first" role.
+- **2b — Billing (§4, §6).** ✅ **Built** — webhook state transitions and the
+  free-tier 402 are unit-tested (`tests/test_billing.py`, `tests/test_quota.py`);
+  the live Stripe test-mode round-trip (Checkout → `stripe listen` → row
+  update) is the remaining manual verify once keys exist.
+- **2c — Async execution (§7).** ✅ **Built** (flag-gated; see §7 as-built
+  note) — publish protocol and handshake unit-tested (`tests/test_jobs.py`);
+  the kill-the-worker re-pickup check is a compose-level manual verify.
+- **2d — Concierge (§8, §9).** ✅ **Built** — `evals/test_concierge_routing.py`
+  passes with the `advice_request` fixtures at 100% through the rule layer,
+  zero LLM calls; refusals are proven never to reach the agent.
+- **2e — Production infra + LLMOps (§10–§13).** **Partially built** — the
+  eval gate (`agent-eval-gate.yml` + `--judge-floor`), canary routing, and
+  promotion evaluator exist; Azure infra is written (`infra/azure/`,
+  `deploy.yml`, [DEPLOYMENT.md](DEPLOYMENT.md)) and awaits the first real
+  deployment. §12's OTel layer and real alerts remain open — the criterion
+  ("every SLO has a real alert attached, not a hunch") stays honest about that.
 
 ---
 

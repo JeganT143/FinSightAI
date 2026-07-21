@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "postgresPassword": { "value": "CHANGE-ME-strong-password" },
+    "openaiApiKey": { "value": "sk-..." },
+    "clerkSecretKey": { "value": "sk_test_..." },
+    "clerkIssuer": { "value": "https://your-app.clerk.accounts.dev" },
+    "stripeSecretKey": { "value": "sk_test_..." },
+    "stripeWebhookSecret": { "value": "whsec_..." },
+    "stripePricePro": { "value": "price_..." },
+    "appDomain": { "value": "finsightai.jegant.dev" },
+    "apiDomain": { "value": "api.finsightai.jegant.dev" },
+    "apiImage": { "value": "ghcr.io/jegant143/finsightai-api:latest" },
+    "webImage": { "value": "ghcr.io/jegant143/finsightai-web:latest" },
+    "ghcrUsername": { "value": "JeganT143" },
+    "ghcrToken": { "value": "ghp_... (read:packages)" }
+  }
+}

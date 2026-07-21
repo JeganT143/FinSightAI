@@ -54,3 +54,6 @@ pip-log.txt
 
 # Misc
 nohup.out
+
+# Azure deployment parameters (contain secrets)
+infra/azure/params.json
