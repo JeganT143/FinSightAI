@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     max_revisions: int = 2
     max_cost_usd: float = 0.50  # circuit breaker: abort revision loop past this spend
     agent_timeout_seconds: float = 180.0  # one hung LLM call must not hang the run forever
+    # A tool-happy specialist occasionally exceeds the SDK's default 10 turns
+    # (observed live: fundamentals looping on search_filings) — headroom, still bounded.
+    agent_max_turns: int = 16
 
     # --- Operational guardrails (ADR-12) ---
     max_concurrent_runs: int = 2  # parallel pipeline runs; excess gets 503 + Retry-After

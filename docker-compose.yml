@@ -67,6 +67,9 @@ services:
       dockerfile: backend/Dockerfile
     container_name: finsight-worker
     command: ["arq", "backend.worker.WorkerSettings"]
+    healthcheck:
+      # The image's HEALTHCHECK probes the API port; the worker serves no HTTP.
+      disable: true
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-finsight}:${POSTGRES_PASSWORD:-finsight}@db:5432/${POSTGRES_DB:-finsight}

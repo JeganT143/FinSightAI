@@ -70,7 +70,7 @@ async def traced_run(agent: Agent, input_text: str, phase: str) -> TracedRun:
 
     try:
         async with asyncio.timeout(settings.agent_timeout_seconds):
-            result = await Runner.run(agent, input_text)
+            result = await Runner.run(agent, input_text, max_turns=settings.agent_max_turns)
     except TimeoutError as e:
         raise AgentTimeoutError(
             f"{agent.name} ({phase}) exceeded {settings.agent_timeout_seconds:.0f}s"

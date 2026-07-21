@@ -161,7 +161,7 @@ async def test_gate_slot_released_after_run(client, stub_pipeline, monkeypatch):
 async def test_traced_run_times_out_hung_agent(monkeypatch):
     from backend.core.config import settings
 
-    async def hung_run(agent, input_text):
+    async def hung_run(agent, input_text, **kwargs):
         await asyncio.sleep(5)
 
     monkeypatch.setattr("backend.pipeline.tracing.Runner.run", hung_run)
