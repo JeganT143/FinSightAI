@@ -351,202 +351,208 @@ filing_chunks      id, filing_id FK, item, section_title, chunk_index,
 
 ## 9. Future Work
 
-Everything below was **deliberately** left out of v1/v2. Recording *why* each
-one was deferred (not just that it was) is the point of this section: it's
-the difference between "we ran out of time" and "we made a scoping call." For
-each item: what it is, why it's not here yet, what it would take, and what
-would have to be true for it to become worth doing.
+Everything below was **deliberately** left out of v1/v2. Each item is a
+concrete build plan — exact files, exact function/class signatures with
+their input and output, and exactly how they'd connect to what already
+exists — not a wish list. One line of "why not yet" per item points at the
+real constraint; the bulk of each entry is what you'd actually type. Two
+items that used to live here (auth, and richer observability) now have a
+*fully worked* forward plan of their own in
+[SAAS_ARCHITECTURE.md](SAAS_ARCHITECTURE.md) and are cross-referenced rather
+than duplicated below.
 
 ### 9.1 Portfolio-level analysis (multi-ticker comparative runs)
 
-**What.** Research N tickers in one request and get a comparative view — "NVDA
-vs AMD vs INTC" — instead of one report per run.
+**What & why not yet.** Research N tickers and get one comparative report —
+"NVDA vs AMD vs INTC" — instead of N separate ones. Deferred because it's a
+different synthesis problem (relative claims: "NVDA's margins are stronger
+than AMD's"), not a parameter on the existing one-ticker pipeline.
 
-**Why deferred.** The entire pipeline (ADR-1, ADR-6) is shaped around one
-ticker: the specialist prompts, the critic's grounding checks, the report
-schema (`ReportDraft.ticker: str`, singular) all assume a single subject. Comparative
-research is a genuinely different product surface — the synthesizer would need
-to reason about *relative* positioning ("NVDA's margins are stronger than
-AMD's"), which is a different prompt-engineering problem, not a parameter
-change. Bolting it on now would mean either (a) running N independent
-pipelines and diffing their outputs client-side — cheap to build, but not
-real comparative analysis, just N reports next to each other — or (b) a new
-`ComparativeSynthesizer` agent and a new report schema, which is a second
-product built on the same specialist layer.
+**Build order:**
 
-**What it would take.** A `PortfolioReportDraft` schema, a fan-out that runs
-the existing 4-specialist research phase once per ticker (this part is free —
-already parallel), then a comparative synthesizer that receives all N
-specialist bundles at once. The critic would need a second mode: not just
-"is each claim grounded" but "is this comparison fair" (e.g., comparing
-trailing P/E for one company against forward P/E for another is the kind of
-error a single-ticker critic never has to catch).
+1. `backend/schemas/agents.py` — add `PortfolioReportDraft(BaseModel)`:
+   fields `tickers: list[str]`, `pillars_by_ticker: dict[str, list[PillarSummary]]`
+   (reuses the existing `PillarSummary`), `comparative_thesis: str`,
+   `ranking: list[str]` (tickers, best to worst), `citations: list[Citation]`.
+   — **in:** N tickers' worth of specialist data — **out:** one comparative
+   report object.
 
-**Trigger to build it.** User research showing people actually paste multiple
-tickers into the single-ticker box (a real signal, not a guess) — or a
-portfolio-tracking use case entering scope.
+2. `backend/agents/comparative_synthesizer.py` — new `Agent` instance,
+   `output_type=PortfolioReportDraft`, no tools (same shape as
+   `synthesizer_agent`, ARCHITECTURE.md §7/HOW_TO.md Phase 7). Instructions
+   must require every comparative claim to name the *same metric* on both
+   sides (the thing a single-ticker critic never has to check) — this is
+   what the critic reuse below actually verifies.
+
+3. `backend/pipeline/portfolio.py` — `run_portfolio_pipeline_stream(tickers: list[str], db: AsyncSession) -> AsyncGenerator[dict]`
+   — **in:** a list of tickers — **out:** SSE-shaped events, same envelope
+   as `run_research_pipeline_stream` — **body:** `asyncio.gather` the
+   *existing, unchanged* per-ticker specialist fan-out (the `SPECIALISTS`
+   dict from `pipeline/research.py`) once per ticker, then one call to
+   `comparative_synthesizer`, then the *existing* `critic_agent` in a loop
+   (unchanged — instructions already say "check every claim is grounded";
+   the comparative-fairness rubric lives in the synthesizer's instructions,
+   step 2, not a new critic).
+
+4. `backend/db/models.py` — new `PortfolioReport(Base)` table, same shape as
+   `ResearchReport` but `tickers: Mapped[list[str]]` (JSONB) instead of one
+   `ticker: str`.
+
+5. `backend/api/routes_portfolio.py` — `POST /api/portfolio/stream`, same
+   pattern as `routes_research.py`'s `research_stream`, wrapping step 3.
+
+**Trigger to build it.** Real usage signal (people pasting multiple tickers
+into the single-ticker box), not a guess.
 
 ### 9.2 Provider-agnostic LLM layer with failover
 
-**What.** Abstract the OpenAI Agents SDK behind an interface so Anthropic,
-Gemini, or a local model could serve any agent role, with automatic failover
-if a provider is down or degraded.
+**What & why not yet.** Let Anthropic/Gemini/a local model serve any agent
+role, with failover. Deferred per ADR-2's trade-off: every agent's behavior
+becomes provider-specific to verify, for a reliability problem
+(single-provider outage) this single-operator system doesn't have yet.
 
-**Why deferred.** This is the trade-off explicitly accepted in ADR-2. Every
-provider's structured-output guarantees, tool-calling semantics, and streaming
-formats differ enough that a real abstraction layer means either (a) a
-lowest-common-denominator interface that quietly drops each provider's best
-features, or (b) per-provider adapters that need independent maintenance and
-testing — both are real projects, not a config flag. Since this system has one
-operator and one API key, multi-provider failover solves a reliability problem
-("what if OpenAI is down") that doesn't yet exist for a single-user demo, at
-the cost of a real one (every agent's behavior now has to be verified against
-N providers, N times, forever).
+**Build order:**
 
-**What it would take.** A thin `LLMClient` protocol (`generate(prompt, schema) -> T`)
-that the Agents SDK currently satisfies directly; implementations for each
-additional provider; a routing/fallback policy (round-robin? cost-based?
-health-check-based?); and — the expensive part — eval-harness runs (ADR-9)
-per provider, because "the critic works" is a claim that's provider-specific
-until proven otherwise.
+1. `backend/core/llm_client.py` — `class LLMClient(Protocol): async def
+   generate(self, instructions: str, input_text: str, output_type: type[T],
+   tools: list) -> T` — **in:** the same arguments `Agent(...)` +
+   `Runner.run(...)` take today — **out:** a parsed `output_type` instance —
+   this is the seam every agent call goes through instead of calling the
+   Agents SDK directly.
 
-**Trigger to build it.** Either a production reliability requirement (uptime
-SLA that a single provider can't meet) or a cost/quality reason to route
-specific roles to specific providers (e.g., a future model that's meaningfully
-better/cheaper at adversarial critique specifically).
+2. `backend/core/providers/openai_provider.py` — `class
+   OpenAIProvider(LLMClient)` — wraps the exact `Runner.run` call
+   `pipeline/tracing.py`'s `traced_run` makes today; the default and, at
+   first, only registered provider.
+
+3. `backend/core/providers/anthropic_provider.py` — `class
+   AnthropicProvider(LLMClient)` — same method signature, calls Anthropic's
+   tool-use API, translates the Pydantic `output_type` into Anthropic's
+   tool-input JSON schema format.
+
+4. `backend/pipeline/tracing.py` — `traced_run` changes to accept a
+   `provider: LLMClient` argument (default `OpenAIProvider()`) instead of
+   calling `Runner.run` directly; `backend/core/config.py`'s `Settings`
+   grows `specialist_provider`/`synthesizer_provider`/`critic_provider`
+   fields, mirroring the existing per-role `*_model` fields exactly.
+
+5. `evals/test_provider_parity.py` — new eval: run the golden fixture's
+   specialist inputs through `synthesizer_agent` under *each* registered
+   provider, assert `evals/test_deterministic.py`'s existing checks pass for
+   all of them. This file is the actual gate — a second provider doesn't
+   ship until it exists and passes.
+
+**Trigger to build it.** A real uptime requirement, or a model that's
+meaningfully better/cheaper specifically at critique.
 
 ### 9.3 Multi-critic debate, arbitrated by the eval harness
 
-**What.** Instead of one critic agent, run 3–5 differently-prompted critics in
-parallel (e.g., one skeptical of growth narratives, one focused on
-balance-sheet risk, one checking citation fidelity) and have their combined
-verdict — arbitrated by majority vote or an aggregator agent — gate
-publication, instead of a single critic's judgment.
+**What & why not yet.** 3–5 differently-prompted critics instead of one,
+combined verdict gates publication. Deferred because it's a 3–5x
+critique-cost increase for a quality gain that's assumed, not measured, on
+this system yet — ADR-9's eval harness exists precisely to settle exactly
+this kind of claim before paying for it.
 
-**Why deferred.** ADR-6 chose one critic deliberately: at this stakes level
-(a free research demo, not a fund's actual investment process), a single
-well-instructed adversarial reviewer already catches the failure mode that
-matters most (fabricated numbers) with the deterministic grounding checker as
-a backstop (ADR-9). Multi-critic debate is a genuine quality lever — real
-research shows ensembles of differently-prompted judges catch more than any
-one judge — but it's a 3–5x critique-phase cost and latency increase for a
-benefit that hasn't been *measured* yet on this system, only assumed.
+**Build order:**
 
-**What it would take.** This is explicitly an eval-harness project before it's
-a pipeline project: instrument the LLM-as-judge tier (ADR-9) to A/B single-
-critic vs. multi-critic reports on the same specialist data, and look at
-whether groundedness/completeness scores actually move. Build the ensemble
-only if that experiment says yes. Building it first and evaluating later
-would be building the expensive thing to find out if it's needed — backwards.
+1. `backend/agents/critic_variants.py` — three more `Agent` instances,
+   reusing `CriticOutput` unchanged (`output_type=CriticOutput`):
+   `growth_skeptic_critic`, `balance_sheet_critic`, `citation_fidelity_critic`
+   — same shape as `critic_agent`, each instructed to emphasize one failure
+   mode.
 
-**Trigger to build it.** The A/B experiment above showing a real quality
-delta, or a use case where publication mistakes are costly enough that 3-5x
-critique cost is obviously worth paying.
+2. `backend/pipeline/research.py` — `run_critic_panel(payload: str, draft_json: str) -> CriticOutput`
+   — **in:** the same `payload`/draft strings the single critic gets today —
+   **out:** one aggregated `CriticOutput` — **body:** `asyncio.gather`
+   `traced_run` over all four critics (the original `critic_agent` plus the
+   three variants), then `blocks_publication = any(r.blocks_publication for
+   r in results)`, `challenges = dedupe_by_claim([c for r in results for c
+   in r.challenges])`.
+
+3. **The experiment that decides whether step 2 ever gets called by the
+   default pipeline:** `evals/test_critic_panel_ab.py` — for every golden
+   fixture, run both `traced_run(critic_agent, ...)` (today's single critic)
+   and `run_critic_panel(...)` (step 2), then `judge_report(...)` (Phase 11)
+   on the resulting reports either way; log the groundedness/completeness
+   delta. `pipeline/research.py`'s critique step only switches from the
+   single call to `run_critic_panel` if this file shows a real, positive
+   delta over enough fixtures — not before.
+
+**Trigger to build it.** The A/B in step 3 showing a real delta.
 
 ### 9.4 AuthN/Z + per-user history
 
-**What.** Real accounts — sign-in, API keys or OAuth, and report history
-scoped to a user instead of global.
-
-**Why deferred.** v1/v2 is a single-operator demo; every report in the
-`research_reports` table is visible to anyone who can reach the API. Adding
-auth is not hard, but adding it *badly* (e.g., an unauthenticated endpoint
-that happens to also check a header) is worse than not having it — it invites
-a false sense of security. The schema was prepared for this on purpose
-(`User` table, `ResearchReport.user_id` FK, both already exist and are
-already exercised by the ORM relationships) specifically so that adding real
-auth later is a routing/middleware change, not a migration.
-
-**What it would take.** Pick a mechanism appropriate to the deploy target: for
-a self-hosted demo, a single shared API key via a header is enough; for a
-multi-tenant deploy, proper OAuth (e.g., NextAuth on the frontend + a verified
-JWT passed to FastAPI) plus row-level scoping on every query in `crud.py`
-(currently `list_reports`/`get_report` are global — they'd need a `user_id`
-filter, and the SSE endpoint would need to attach the authenticated user to
-the report it creates). Rate limiting per user becomes meaningful once auth
-exists (right now, cost control is only the circuit breaker in ADR-6).
-
-**Trigger to build it.** Deploying this somewhere with a real, unauthenticated
-audience — at which point this stops being optional and becomes the very
-first thing to do, ahead of every other item in this section.
+Fully specified, not just named here — see
+[SAAS_ARCHITECTURE.md §3 Authentication](SAAS_ARCHITECTURE.md#3-authentication)
+(identity provider choice, file-by-file build order) and
+[§5 Multi-tenancy](SAAS_ARCHITECTURE.md#5-multi-tenancy)
+(row-level scoping on the exact `crud.py` functions this ARCHITECTURE.md
+documents). The schema hook this all lands on (`User`, `ResearchReport.user_id`)
+already exists and is unchanged by that plan.
 
 ### 9.5 Scheduled re-research + report diffing
 
-**What.** Re-run research for a ticker on a schedule (nightly, or on a new
-filing being detected) and show *what changed* since the last report —
-"fundamentals score moved 7.2 → 8.0; new risk factor language detected in the
-latest 10-Q."
+**What & why not yet.** Re-run research on a schedule and show what changed.
+Deferred: needs a job runner this single-process app doesn't have, and a
+report schema that doesn't yet have a "previous version" relationship.
 
-**Why deferred.** This is two features, not one, and each has a real
-dependency the current system doesn't have. Scheduling needs a job runner
-(cron container, or a queue + worker) that this single-process FastAPI app
-doesn't have any of — it's new infrastructure, not new code in the existing
-process. Diffing needs a *stable comparison unit*: today, two reports for the
-same ticker are only related by sharing a `ticker` string; there's no concept
-of "the previous report for this ticker" as a first-class relationship, and
-the report schema (`ReportDraft`) has no diff-friendly structure (prose
-fields like `thesis`/`narrative_markdown` don't diff meaningfully; only the
-structured `pillars`/`overall_score` do).
+**Build order:**
 
-**What it would take.** A scheduler (the pragmatic choice: a periodic Docker
-Compose service running a cron-like loop that calls the existing
-`/api/research` endpoint — no new pipeline code, just a new caller); a
-`previous_report_id` FK added to `ResearchReport` so runs form a chain per
-ticker; and a diff view that specifically compares the structured fields
-(pillar scores, verdict, overall score) numerically and only diffs the prose
-narratively (e.g., "new sentence added to Key Risks") rather than trying to
-line-diff full paragraphs.
+1. `backend/db/models.py` — add one column to `ResearchReport`:
+   `previous_report_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("research_reports.id"), nullable=True)`.
+   New table `WatchedTicker(Base)`: `id, ticker, user_id FK, created_at`.
 
-**Trigger to build it.** Someone wanting to track a specific ticker over time
-rather than research it once — a genuinely different usage pattern than the
-one this v1/v2 was built for.
+2. `backend/pipeline/diff.py` — `compute_report_diff(previous: ReportDraft, current: ReportDraft) -> ReportDiff`
+   — **in:** two `ReportDraft`s for the same ticker — **out:** a new
+   `ReportDiff(BaseModel)`: `score_deltas: dict[str, float]` (per pillar,
+   `current - previous`), `verdict_changed: bool`, `new_risks: list[str]`
+   / `resolved_risks: list[str]` (set difference on `key_risks`) — pure
+   structural comparison, **no LLM call** — prose fields
+   (`thesis`/`narrative_markdown`) are deliberately not diffed here; they
+   don't diff meaningfully as text.
 
-### 9.6 Langfuse (or similar) trace export
+3. `backend/scheduler.py` — `async def run_scheduled_research() -> None` —
+   **body:** reads `WatchedTicker`, calls the *existing, unchanged*
+   `run_research_pipeline(ticker, db)` (HOW_TO.md Phase 8) per row, passing
+   the ticker's most recent report's ID as `previous_report_id` when
+   creating the new one. No new pipeline logic — a new caller of the old
+   pipeline.
 
-**What.** Export every agent run to Langfuse/LangSmith/Braintrust in addition
-to the first-party `agent_runs` table, for their evaluation dashboards, prompt
-diffing, and dataset tooling.
+4. `docker-compose.yml` — new `scheduler` service, same backend image,
+   `command: python -m backend.scheduler`, run on an interval (a `while
+   True: await run_scheduled_research(); await asyncio.sleep(...)` loop is
+   sufficient at this scale — no new infra beyond the existing container).
 
-**Why deferred.** ADR-8 chose first-party traces specifically because they
-needed zero external dependencies to power the UI (the trace timeline in the
-dossier reads directly from Postgres) and zero external accounts for anyone
-running the demo. That reasoning doesn't go away — this item isn't
-"replace" the first-party traces, it's "also send a copy somewhere with
-better tooling for prompt iteration," which is a genuinely different job
-(experimentation tooling vs. product-facing observability) that the current
-tables don't need to do.
+**Trigger to build it.** Someone wanting to track a ticker over time, not
+just research it once.
 
-**What it would take.** The OpenAI Agents SDK already supports tracing
-hooks/processors; this is realistically a day of work — wire a Langfuse (or
-OTel) exporter into the existing `traced_run()` wrapper in
-`backend/pipeline/tracing.py`, behind an optional environment variable so the
-zero-dependency default is preserved for anyone who doesn't set it.
+### 9.6 Richer observability / LLM-ops trace export
 
-**Trigger to build it.** Doing enough prompt iteration on the agents that
-comparing prompt versions across many runs — the thing dedicated LLM-ops
-tools are actually good at — becomes a real bottleneck.
+Fully specified in
+[SAAS_ARCHITECTURE.md §12 Observability](SAAS_ARCHITECTURE.md#12-observability)
+(OpenTelemetry alongside, not instead of, the first-party `agent_runs` table
+this ARCHITECTURE.md documents in ADR-8 — that table keeps powering the
+in-product dossier UI unchanged).
 
-### 9.7 Portfolio-item backlog (smaller, not yet justified individually)
+### 9.7 Backlog (smaller items, named so they're a choice not an oversight)
 
-These didn't earn their own subsection but are worth naming so they're a
-choice, not an oversight:
-
-- **Rate limiting** on the public API — currently only the per-run cost
-  circuit breaker (ADR-6) bounds spend; nothing bounds *request frequency*.
-  Trivial to add (e.g., `slowapi`) but only matters once the API is reachable
-  by more than its own frontend.
-- **Streaming the synthesizer/critic's own token-by-token output** — today
-  the UI waits for each agent to *finish* and shows its structured result;
-  streaming partial text would make synthesis/critique feel faster but
-  conflicts with structured outputs (you can't validate a partial JSON object
-  against a schema mid-stream) — solvable, but a genuine design problem, not
-  a toggle.
-- **Retry/backoff on transient OpenAI errors** — the Agents SDK's own retry
-  behavior is currently relied on as-is; explicit backoff + jitter at the
-  pipeline level would harden long-running research sessions against
-  rate-limit blips.
-- **A `/health/ready` distinct from `/health`** that actually checks the DB
-  connection and OpenAI reachability, for real orchestrators (k8s-style
-  readiness probes) — the current `/health` is liveness-only by design (ADR-11
-  explicitly scoped out K8s), but this is the one piece of that story worth
-  having cheaply if the deploy target ever changes.
+- **Rate limiting.** `backend/main.py` — add `slowapi`: `limiter =
+  Limiter(key_func=get_remote_address)`, `app.state.limiter = limiter`,
+  decorate `research_stream` (`routes_research.py`) with
+  `@limiter.limit("10/minute")`. Complements, doesn't replace, the
+  per-run `max_cost_usd` circuit breaker (ADR-6) — this bounds request
+  *frequency*, that bounds spend *per run*.
+- **Token-by-token streaming for the synthesizer/critic.** Would mean
+  `synthesizer_agent`/`critic_agent` stop using `output_type=` structured
+  parsing for their own generation (you can't validate a partial JSON object
+  against a Pydantic schema mid-stream) — a real conflict with ADR-3, not a
+  flag to flip. Noted so it's clear this is a deliberate non-trivial
+  trade-off, not an oversight.
+- **Retry/backoff on transient OpenAI errors.** `backend/pipeline/tracing.py`
+  — wrap `traced_run`'s `await Runner.run(...)` call with `tenacity`:
+  `@retry(wait=wait_exponential(), stop=stop_after_attempt(3),
+  retry=retry_if_exception_type((RateLimitError, APIConnectionError)))`.
+- **`GET /health/ready`.** `backend/main.py` — new handler, body does
+  `await db.execute(text("SELECT 1"))` plus a short-timeout OpenAI
+  reachability check; distinct from the existing liveness-only `/health`
+  (ADR-11 explicitly scoped real orchestrator readiness probes out of v1/v2).

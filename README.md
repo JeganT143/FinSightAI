@@ -26,7 +26,7 @@
 | **Evaluation harness** | Tier 1 (CI, free): schema/verdict/score invariants + a grounding checker that catches fabricated numbers. Tier 2 (opt-in): LLM-as-judge rubric over golden fixtures from real runs. |
 | **Model routing** | Cheap models for extraction-heavy specialists, stronger models where quality is the product (synthesis, critique). A typical run costs ~**$0.02** and takes ~**35s**. |
 
-**Design docs:** [ARCHITECTURE.md](ARCHITECTURE.md) — 11 ADRs with rejected alternatives · [DESIGN.md](DESIGN.md) — the UI/UX spec written before the frontend · [HOW_TO.md](HOW_TO.md) — a full sequential guide to rebuilding this project by hand.
+**Design docs:** [ARCHITECTURE.md](ARCHITECTURE.md) — system ADRs + a concrete Future Work build plan · [DESIGN.md](DESIGN.md) — the research console's UI/UX spec · [HOW_TO.md](HOW_TO.md) — file-by-file, function-by-function build order for this whole repo · [SAAS_ARCHITECTURE.md](SAAS_ARCHITECTURE.md) — the Phase 2 build plan: accounts, billing, a natural-language interface, eval-gated LLMOps CI/CD · [SAAS_DESIGN.md](SAAS_DESIGN.md) — UI/UX for every page in the Phase 2 SaaS product.
 
 ## The pipeline
 
