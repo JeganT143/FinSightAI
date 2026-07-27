@@ -57,3 +57,6 @@ nohup.out
 
 # Azure deployment parameters (contain secrets)
 infra/azure/params.json
+
+# Internal working docs — kept locally, not part of the public/deployed repo
+internal-docs/
