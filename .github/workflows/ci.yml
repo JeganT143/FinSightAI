@@ -104,6 +104,11 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
+      # pip-audit resolves its own throwaway env and can land on a Python
+      # version with no prebuilt lxml wheel yet, forcing a source build.
+      - name: Install lxml build headers (fallback if pip-audit builds from source)
+        run: sudo apt-get update && sudo apt-get install -y libxml2-dev libxslt-dev
+
       - name: Audit Python dependencies (pip-audit against the lockfile)
         run: |
           uv export --frozen --no-dev --no-emit-project -o requirements.txt
