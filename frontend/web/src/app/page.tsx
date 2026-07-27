@@ -3,6 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CLERK_ENABLED } from "@/lib/auth-config";
+import { BILLING_ENABLED } from "@/lib/billing-config";
 
 /**
  * The storefront (SAAS_DESIGN §2): signed-out visitors only. Signed-in users
@@ -37,12 +38,14 @@ export default async function LandingPage() {
           >
             Start researching free →
           </Link>
-          <Link
-            href="/pricing"
-            className="rounded-lg border border-border bg-surface px-6 py-3 font-mono text-sm uppercase tracking-widest text-text transition-colors hover:border-brand"
-          >
-            See pricing
-          </Link>
+          {BILLING_ENABLED && (
+            <Link
+              href="/pricing"
+              className="rounded-lg border border-border bg-surface px-6 py-3 font-mono text-sm uppercase tracking-widest text-text transition-colors hover:border-brand"
+            >
+              See pricing
+            </Link>
+          )}
         </div>
 
         {/* The proof: the desk mid-run and the paper on completion. */}

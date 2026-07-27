@@ -12,8 +12,17 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # images must be built with these args (see infra/ and docker-compose.yml).
 ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=""
 ARG NEXT_PUBLIC_API_URL=""
+ARG NEXT_PUBLIC_BILLING_ENABLED=""
+# Fixed app routes, not per-environment config — without these, Clerk's
+# middleware (auth.protect()) sends unauthenticated visitors to its own bare
+# hosted Account Portal instead of this app's styled /sign-in, /sign-up pages.
+ARG NEXT_PUBLIC_CLERK_SIGN_IN_URL="/sign-in"
+ARG NEXT_PUBLIC_CLERK_SIGN_UP_URL="/sign-up"
 ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY \
-    NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+    NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
+    NEXT_PUBLIC_BILLING_ENABLED=$NEXT_PUBLIC_BILLING_ENABLED \
+    NEXT_PUBLIC_CLERK_SIGN_IN_URL=$NEXT_PUBLIC_CLERK_SIGN_IN_URL \
+    NEXT_PUBLIC_CLERK_SIGN_UP_URL=$NEXT_PUBLIC_CLERK_SIGN_UP_URL
 RUN npm run build
 
 FROM node:22-alpine

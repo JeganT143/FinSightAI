@@ -8,6 +8,7 @@ import Script from "next/script";
 import { ClerkTokenBridge } from "@/components/AuthTokenBridge";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { CLERK_ENABLED, clerkAppearance } from "@/lib/auth-config";
+import { BILLING_ENABLED } from "@/lib/billing-config";
 import "./globals.css";
 
 // Sets data-theme on <html> BEFORE hydration, so there's no flash of the
@@ -90,7 +91,7 @@ function AppShell({
                 <Link href="/chat" className="text-text-muted transition-colors hover:text-brand">
                   Chat
                 </Link>
-                {signedIn === false && (
+                {signedIn === false && BILLING_ENABLED && (
                   <Link
                     href="/pricing"
                     className="text-text-muted transition-colors hover:text-brand"
@@ -139,7 +140,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   }
   const { userId } = await auth();
   return (
-    <ClerkProvider appearance={clerkAppearance}>
+    <ClerkProvider
+      appearance={clerkAppearance}
+      signInUrl="/sign-in"
+      signUpUrl="/sign-up"
+      signInFallbackRedirectUrl="/console"
+      signUpFallbackRedirectUrl="/welcome"
+    >
       <AppShell signedIn={Boolean(userId)}>
         <ClerkTokenBridge>{children}</ClerkTokenBridge>
       </AppShell>

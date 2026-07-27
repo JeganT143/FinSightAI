@@ -10,6 +10,7 @@
 # Required repository variables:
 #   AZURE_RESOURCE_GROUP (e.g. finsightai-rg)
 #   NEXT_PUBLIC_API_URL  (e.g. https://api.finsightai.jegant.dev)
+#   NEXT_PUBLIC_BILLING_ENABLED  ("true" once Stripe is configured; unset/empty hides pricing & upgrade UI)
 
 name: Deploy
 
@@ -70,6 +71,7 @@ jobs:
           build-args: |
             NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
             NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }}
+            NEXT_PUBLIC_BILLING_ENABLED=${{ vars.NEXT_PUBLIC_BILLING_ENABLED }}
           tags: |
             ${{ env.WEB_IMAGE }}:${{ steps.meta.outputs.tag }}
             ${{ env.WEB_IMAGE }}:latest

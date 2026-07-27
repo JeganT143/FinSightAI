@@ -92,6 +92,8 @@ services:
       args:
         # Inlined at build time; empty = auth disabled (dev parity).
         NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
+        # Inlined at build time; empty/unset = pricing & upgrade UI hidden.
+        NEXT_PUBLIC_BILLING_ENABLED: ${NEXT_PUBLIC_BILLING_ENABLED:-}
     container_name: finsight-frontend
     environment:
       # Server-side proxy target inside the compose network

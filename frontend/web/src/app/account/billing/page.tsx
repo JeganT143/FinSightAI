@@ -10,6 +10,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useAuthToken } from "@/components/AuthTokenBridge";
 import { authHeaders, PUBLIC_API_URL } from "@/lib/api";
+import { BILLING_ENABLED } from "@/lib/billing-config";
 
 interface Usage {
   plan: string;
@@ -110,7 +111,7 @@ export default function BillingPage() {
               </span>
             )}
           </p>
-          {fraction >= 0.9 && (
+          {fraction >= 0.9 && BILLING_ENABLED && (
             <p className="mt-2 text-[15px]">
               <Link href="/pricing" className="text-brand underline hover:text-brand-strong">
                 Nearly out — upgrade for a higher limit →
@@ -119,19 +120,21 @@ export default function BillingPage() {
           )}
         </div>
 
-        <div className="mt-8 border-t border-border pt-6">
-          <button
-            onClick={openPortal}
-            disabled={redirecting}
-            className="rounded-lg border border-border bg-bg px-5 py-2.5 font-mono text-sm uppercase tracking-widest text-text transition-colors hover:border-brand disabled:opacity-60"
-          >
-            {redirecting ? "Opening…" : "Manage billing (Stripe) →"}
-          </button>
-          <p className="mt-2.5 text-sm text-text-muted">
-            Payment methods, invoices, and cancellation are handled in Stripe&apos;s own portal —
-            card details never touch FinSightAI.
-          </p>
-        </div>
+        {BILLING_ENABLED && (
+          <div className="mt-8 border-t border-border pt-6">
+            <button
+              onClick={openPortal}
+              disabled={redirecting}
+              className="rounded-lg border border-border bg-bg px-5 py-2.5 font-mono text-sm uppercase tracking-widest text-text transition-colors hover:border-brand disabled:opacity-60"
+            >
+              {redirecting ? "Opening…" : "Manage billing (Stripe) →"}
+            </button>
+            <p className="mt-2.5 text-sm text-text-muted">
+              Payment methods, invoices, and cancellation are handled in Stripe&apos;s own portal —
+              card details never touch FinSightAI.
+            </p>
+          </div>
+        )}
       </section>
     </div>
   );

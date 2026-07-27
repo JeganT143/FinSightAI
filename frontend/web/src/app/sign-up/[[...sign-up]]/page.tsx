@@ -2,6 +2,7 @@
 
 import { SignUp } from "@clerk/nextjs";
 import { useState } from "react";
+import { DemoCredentials } from "@/components/DemoCredentials";
 import { clerkAppearance } from "@/lib/auth-config";
 
 /**
@@ -14,6 +15,7 @@ export default function SignUpPage() {
 
   return (
     <div className="flex flex-col items-center gap-6 pt-10">
+      <DemoCredentials />
       <label className="flex max-w-md cursor-pointer items-start gap-3 rounded-lg border border-border bg-surface px-4 py-3.5">
         <input
           type="checkbox"

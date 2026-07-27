@@ -11,6 +11,7 @@ import { RunStatusStrip } from "@/components/RunStatusStrip";
 import { SpecialistCard } from "@/components/SpecialistCard";
 import { Tape } from "@/components/Tape";
 import { TickerForm } from "@/components/TickerForm";
+import { BILLING_ENABLED } from "@/lib/billing-config";
 import type { AgentKey } from "@/lib/events";
 import { formatDuration, formatMoney, formatTokens } from "@/lib/score";
 import { useResearchStream } from "@/lib/useResearchStream";
@@ -89,9 +90,13 @@ function Console() {
           <p className="text-[15px] text-text">{run.error}</p>
           <p className="mt-1.5 text-[15px] text-text-muted">
             This is a plan limit, not an error.{" "}
-            <Link href="/pricing" className="underline hover:text-text">
-              Upgrade for a higher monthly limit →
-            </Link>
+            {BILLING_ENABLED ? (
+              <Link href="/pricing" className="underline hover:text-text">
+                Upgrade for a higher monthly limit →
+              </Link>
+            ) : (
+              "Your limit resets next period."
+            )}
           </p>
         </div>
       )}

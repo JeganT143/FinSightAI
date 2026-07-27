@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import { useAuthToken } from "@/components/AuthTokenBridge";
 import { authHeaders, PUBLIC_API_URL } from "@/lib/api";
 import { CLERK_ENABLED } from "@/lib/auth-config";
+import { BILLING_ENABLED } from "@/lib/billing-config";
 
 interface PlanInfo {
   max_runs_per_period: number;
@@ -132,13 +133,19 @@ export default function PricingPage() {
             <li>Unlimited history</li>
             <li>Chat: full — can trigger research</li>
           </ul>
-          <button
-            onClick={upgrade}
-            disabled={upgrading}
-            className="mt-7 rounded-lg bg-brand px-5 py-2.5 font-mono text-sm font-medium uppercase tracking-widest text-white transition-colors hover:bg-brand-strong disabled:opacity-60"
-          >
-            {upgrading ? "Redirecting…" : "Upgrade to Pro"}
-          </button>
+          {BILLING_ENABLED ? (
+            <button
+              onClick={upgrade}
+              disabled={upgrading}
+              className="mt-7 rounded-lg bg-brand px-5 py-2.5 font-mono text-sm font-medium uppercase tracking-widest text-white transition-colors hover:bg-brand-strong disabled:opacity-60"
+            >
+              {upgrading ? "Redirecting…" : "Upgrade to Pro"}
+            </button>
+          ) : (
+            <p className="mt-7 rounded-lg border border-border px-5 py-2.5 text-center font-mono text-sm uppercase tracking-widest text-text-muted">
+              Coming soon
+            </p>
+          )}
         </div>
       </div>
 
