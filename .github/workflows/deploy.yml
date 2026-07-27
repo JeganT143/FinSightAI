@@ -94,11 +94,6 @@ jobs:
           az containerapp update -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n finsight-api \
             --image "${{ env.API_IMAGE }}:${{ needs.build-push.outputs.tag }}"
 
-      - name: Update worker
-        run: |
-          az containerapp update -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n finsight-worker \
-            --image "${{ env.API_IMAGE }}:${{ needs.build-push.outputs.tag }}"
-
       - name: Update web
         run: |
           az containerapp update -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n finsight-web \
